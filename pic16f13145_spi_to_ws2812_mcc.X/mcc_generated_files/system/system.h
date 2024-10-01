@@ -40,13 +40,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "config_bits.h"
-#include "../system/clock.h"
 #include "../clb/clb1.h"
 #include "../system/pins.h"
 #include "../crc/crc.h"
 #include "../nvm/nvm.h"
 #include "../spi/mssp1.h"
 #include "../system/interrupt.h"
+#include "../system/clock.h"
 
 /**
  * @ingroup systemdriver

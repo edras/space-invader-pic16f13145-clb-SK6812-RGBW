@@ -7,7 +7,9 @@
  * 
  * @brief This is the generated driver implementation file for the MAIN driver.
  *
- * @version MAIN Driver Version 1.0.0
+ * @version MAIN Driver Version 1.0.2
+ *
+ * @version Package Version: 3.1.2
 */
 
 /*
@@ -53,7 +55,7 @@ typedef struct
 static void WriteLEDsString(color_t const * const frame) 
 {
     SPI1_Open(Custom_SPI); 
-    SPI1_BufferExchange(frame, RGB_IMAGE_SIZE);
+    SPI1_BufferWrite(frame, RGB_IMAGE_SIZE);
     SPI1_Close(); 
 }
 
@@ -78,6 +80,7 @@ int main(void)
     // Disable the Peripheral Interrupts 
     //INTERRUPT_PeripheralInterruptDisable(); 
     
+
     while(1)
     {
         CLBSWINLbits.CLBSWIN0 = 0; // DEMUX out0, SPI routed to PPSOUT pins
