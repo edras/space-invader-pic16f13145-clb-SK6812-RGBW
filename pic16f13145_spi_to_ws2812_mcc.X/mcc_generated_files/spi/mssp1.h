@@ -7,11 +7,11 @@
  *
  * @brief This header file provides API prototypes for the SPI1 driver.
  *
- * @version SPI1 Driver Version v5.0.0
+ * @version SPI1 Driver Version v5.0.1
  */
 
 /*
-© [2024] Microchip Technology Inc. and its subsidiaries.
+© [2026] Microchip Technology Inc. and its subsidiaries.
 
     Subject to your compliance with these terms, you may use Microchip 
     software and any derivatives exclusively with Microchip products. 
@@ -39,71 +39,10 @@
 
 /**
  * @ingroup spi1
- * @struct SPI_INTERFACE SPI1_Host
+ * @struct SPI_INTERFACE SPI1
  * @brief SPI driver interface object.
  */
-extern const struct SPI_INTERFACE SPI1_Host;
-
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_Initialize API
- */
-#define SPI1_Host_Initialize SPI1_Initialize
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_Deinitialize API
- */
-#define SPI1_Host_Deinitialize SPI1_Deinitialize
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_Close API
- */
-#define SPI1_Host_Close SPI1_Close
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_Open API
- */
-#define SPI1_Host_Open SPI1_Open
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_ByteExchange API
- */
-#define SPI1_Host_ByteExchange SPI1_ByteExchange
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_BufferExchange API
- */
-#define SPI1_Host_BufferExchange SPI1_BufferExchange
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_BufferWrite API
- */
-#define SPI1_Host_BufferWrite SPI1_BufferWrite
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_BufferRead API
- */
-#define SPI1_Host_BufferRead SPI1_BufferRead
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_ByteWrite API
- */
-#define SPI1_Host_ByteWrite SPI1_ByteWrite
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_ByteRead API
- */
-#define SPI1_Host_ByteRead SPI1_ByteRead
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_IsRxReady API
- */
-#define SPI1_Host_IsRxReady SPI1_IsRxReady
-/**
- * @ingroup  spi1
- * @brief    This macro defines the Custom Name for \ref SPI1_IsTxReady API
- */
-#define SPI1_Host_IsTxReady SPI1_IsTxReady
+extern const struct SPI_INTERFACE SPI1;
 
 /**
  * @ingroup spi1
@@ -113,7 +52,6 @@ extern const struct SPI_INTERFACE SPI1_Host;
  * and is used by the function to set SPI parameters as specified by the configuration.
  */
 typedef enum {
-    Custom_SPI,
     MSSP1_DEFAULT
 } spi1_configuration_name_t;
 

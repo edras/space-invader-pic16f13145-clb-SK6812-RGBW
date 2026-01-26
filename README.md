@@ -1,6 +1,12 @@
 <!-- Please do not change this html logo with link -->
 
-<a href="https://www.microchip.com" rel="nofollow"><img src="images/microchip.png" alt="MCHP" width="300"/></a>
+<a target="_blank" href="https://www.microchip.com/" id="top-of-page">
+   <picture>
+      <source media="(prefers-color-scheme: light)" srcset="images/mchp_logo_light.png" width="350">
+      <source media="(prefers-color-scheme: dark)" srcset="images/mchp_logo_dark.png" width="350">
+      <img alt="Microchip Technologies Inc." src="https://www.microchip.com/content/experience-fragments/mchp/en_us/site/header/master/_jcr_content/root/responsivegrid/header/logo.coreimg.100.300.png/1605828081463/microchip.png">
+   </picture>
+</a>
 
 # SPI to WS2812 — Use Case for CLB Using the PIC16F13145 Microcontroller with MCC Melody
 
@@ -19,9 +25,11 @@ More details and code examples on the PIC16F13145 can be found at the following 
 
 ## Software Used
 
-- [MPLAB X IDE v6.20 or newer](https://www.microchip.com/en-us/tools-resources/develop/mplab-x-ide?utm_source=GitHub&utm_medium=TextLink&utm_campaign=MCU8_MMTCha_PIC16F13145&utm_content=pic16f13145-spi-ws2812-mplab-mcc&utm_bu=MCU08)
-- [MPLAB XC8 v2.50 or newer](https://www.microchip.com/en-us/tools-resources/develop/mplab-xc-compilers?utm_source=GitHub&utm_medium=TextLink&utm_campaign=MCU8_MMTCha_PIC16F13145&utm_content=pic16f13145-spi-ws2812-mplab-mcc&utm_bu=MCU08)
-- [PIC16F1xxxx_DFP v1.25.389 or newer](https://packs.download.microchip.com/)
+- [MPLAB X IDE v6.30 or newer](https://www.microchip.com/en-us/tools-resources/develop/mplab-x-ide?utm_source=GitHub&utm_medium=TextLink&utm_campaign=MCU8_MMTCha_PIC16F13145&utm_content=pic16f13145-spi-ws2812-mplab-mcc&utm_bu=MCU08) or [MPLAB® Tools for VS Code®](https://www.microchip.com/en-us/tools-resources/develop/mplab-tools-vs-code?utm_source=GitHub&utm_medium=TextLink&utm_campaign=MCU8_MMTCha_PIC16F13145&utm_content=pic16f13145-spi-ws2812-mplab-mcc&utm_bu=MCU08)
+- [MPLAB XC8 v3.10 or newer](https://www.microchip.com/en-us/tools-resources/develop/mplab-xc-compilers?utm_source=GitHub&utm_medium=TextLink&utm_campaign=MCU8_MMTCha_PIC16F13145&utm_content=pic16f13145-spi-ws2812-mplab-mcc&utm_bu=MCU08)
+- [PIC16F1xxxx_DFP v1.29.444 or newer](https://packs.download.microchip.com/)
+
+**Important:** The current version features an update to the CLB peripheral, which now includes the CLB Synthesizer Library. For migration details and required changes, refer to the [_Troubleshooting MCC Melody Configurable Logic Block (CLB) Projects Configured With CLB v1.x.x_](https://onlinedocs.microchip.com/oxy/GUID-9438FEC3-C80B-4328-8A8E-2531EDEE6155-en-US-1/index.html) migration guide documentation.
 
 ## Hardware Used
 
@@ -80,7 +88,6 @@ When the CLBSWIN1 is set, the SPI_to_WS2812 output that is connected next to the
 The following peripheral and clock configurations are set up using the MPLAB Code Configurator (MCC) Melody for the PIC16F13145:
 
 1. Configuration Bits:
-
    - CONFIG1:
      - External Oscillator mode selection bits: Oscillator not enabled
      - Power-up default value for COSC bits: HFINTOSC (1 MHz)
@@ -93,38 +100,32 @@ The following peripheral and clock configurations are set up using the MPLAB Cod
        <br><img src="images/mcc_config_bits_3.png" width="400">
 
 2. Clock Control:
-
    - Clock Source: HFINTOSC
    - HF Internal Clock: 32_MHz
    - Clock Divider: 1
      <br><img src="images/mcc_clock_control.png" width="400">
 
-3. MSSP1 and SPI:
-
-   - Serial Protocol: SPI
-     - Mode: Host
-     - SPI Mode: SPI Mode 1
-     - Config Name: Custom_SPI
-     - Requested Speed (kHz): 800
-     - Clock Source Selection: FOSC/4_SSPxADD
-       <br><img src="images/mcc_spi_host.png" width="400"> <img src="images/mcc_mssp.png" width="400">
-
-4. CLB1:
-
+3. CLB Synthesizer Library:
    - Enable CLB: Enabled
    - Clock Selection: HFINTOSC
    - Clock Divider: Divide clock source by 4
      <br><img src="images/mcc_clb.png" width="400">
 
+4. MSSP1 (SPI):
+   - Serial Protocol: SPI
+     - Mode: Host
+     - SPI Mode: SPI Mode 1
+     - Input Data Sampled At: Middle
+     - Clock Source Selection: FOSC/4_SSPxADD
+     - SPI Clock Frequency (Hz): 800000 (800 kHz)
+     - Interrupt Driven: Disabled
+
+       <img src="images/mcc_mssp.png" width="400">
+
 5. CRC:
-
    - Auto-configured by CLB
 
-6. NVM:
-
-   - Auto-configured by CLB
-
-7. Pin Grid View:
+6. Pin Grid View:
    - CLBPPSOUT0: RB4 (CLBSWIN0)
    - CLBPPSOUT1: RB5 (SDO)
    - CLBPPSOUT2: RB6 (SCK)

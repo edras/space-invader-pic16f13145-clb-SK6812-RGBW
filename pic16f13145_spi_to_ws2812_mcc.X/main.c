@@ -13,7 +13,7 @@
 */
 
 /*
-© [2024] Microchip Technology Inc. and its subsidiaries.
+© [2026] Microchip Technology Inc. and its subsidiaries.
 
     Subject to your compliance with these terms, you may use Microchip 
     software and any derivatives exclusively with Microchip products. 
@@ -54,7 +54,7 @@ typedef struct
 
 static void WriteLEDsString(color_t const * const frame) 
 {
-    SPI1_Open(Custom_SPI); 
+    SPI1_Open(MSSP1_DEFAULT); 
     SPI1_BufferWrite(frame, RGB_IMAGE_SIZE);
     SPI1_Close(); 
 }
