@@ -8,7 +8,7 @@
    </picture>
 </a>
 
-# SPI to WS2812 — Use Case for CLB Using the PIC16F13145 Microcontroller with MCC Melody
+# SPI to WS2812 — Use Case for CLB Using the PIC16F13145 Microcontroller With MCC Melody
 
 This repository provides an MPLAB® X project for interfacing the Configurable Logic Block (CLB) and Serial Peripheral Interface (SPI) peripherals with a WS2812 LED matrix.
 
@@ -25,8 +25,8 @@ More details and code examples on the PIC16F13145 can be found at the following 
 
 ## Software Used
 
-- [MPLAB X IDE v6.30 or newer](https://www.microchip.com/en-us/tools-resources/develop/mplab-x-ide?utm_source=GitHub&utm_medium=TextLink&utm_campaign=MCU8_MMTCha_PIC16F13145&utm_content=pic16f13145-spi-ws2812-mplab-mcc&utm_bu=MCU08) or [MPLAB® Tools for VS Code®](https://www.microchip.com/en-us/tools-resources/develop/mplab-tools-vs-code?utm_source=GitHub&utm_medium=TextLink&utm_campaign=MCU8_MMTCha_PIC16F13145&utm_content=pic16f13145-spi-ws2812-mplab-mcc&utm_bu=MCU08)
-- [MPLAB XC8 v3.10 or newer](https://www.microchip.com/en-us/tools-resources/develop/mplab-xc-compilers?utm_source=GitHub&utm_medium=TextLink&utm_campaign=MCU8_MMTCha_PIC16F13145&utm_content=pic16f13145-spi-ws2812-mplab-mcc&utm_bu=MCU08)
+- [MPLAB® X IDE v6.30 or newer](https://www.microchip.com/en-us/tools-resources/develop/mplab-x-ide?utm_source=GitHub&utm_medium=TextLink&utm_campaign=MCU8_MMTCha_PIC16F13145&utm_content=pic16f13145-spi-ws2812-mplab-mcc&utm_bu=MCU08) or [MPLAB® Tools for VS Code®](https://www.microchip.com/en-us/tools-resources/develop/mplab-tools-vs-code?utm_source=GitHub&utm_medium=TextLink&utm_campaign=MCU8_MMTCha_PIC16F13145&utm_content=pic16f13145-spi-ws2812-mplab-mcc&utm_bu=MCU08)
+- [MPLAB® XC8 v3.10 or newer](https://www.microchip.com/en-us/tools-resources/develop/mplab-xc-compilers?utm_source=GitHub&utm_medium=TextLink&utm_campaign=MCU8_MMTCha_PIC16F13145&utm_content=pic16f13145-spi-ws2812-mplab-mcc&utm_bu=MCU08)
 - [PIC16F1xxxx_DFP v1.29.444 or newer](https://packs.download.microchip.com/)
 
 **Important:** The current version features an update to the CLB peripheral, which now includes the CLB Synthesizer Library. For migration details and required changes, refer to the [_Troubleshooting MCC Melody Configurable Logic Block (CLB) Projects Configured With CLB v1.x.x_](https://onlinedocs.microchip.com/oxy/GUID-9438FEC3-C80B-4328-8A8E-2531EDEE6155-en-US-1/index.html) migration guide documentation.
@@ -57,7 +57,7 @@ The `MSSP1_SDO`, `CLBSWIN0` and `MSSP1_SCK` pins are configured as input pins fo
 
 <br><img src="images/mcc_clb_demux_1x2.png" width="800">
 
-If the CLBSWIN0 bit is set, the SPI signals will be routed to the `SPI_to_WS2812` circuit, that is shown in the capture below, composed of a D Latch, a 3-bit counter with reset and one LUT. The output value of the 4-bit Look-Up Table (LUT) is `0x7E0E`, used to manage the specific timings for the WS2812 LED matrix, that can be found on its own [data sheet](https://cdn-shop.adafruit.com/datasheets/WS2812.pdf). The first three inputs of the LUT (A, B, C) are the outputs of the 3-bit counter, while the fourth input of the LUT is used to choose the right pattern for the matrix, so there are two sets of eight bits. In the green box the D value is `0`, meaning the "0 code" is chosen and described by three high periods and five low periods, and the "1 code" is described by six periods high and two periods low.. Those periods represent the right timings mentioned in the datasheet to power up the LEDs in the desired pattern.
+If the CLBSWIN0 bit is set, the SPI signals will be routed to the `SPI_to_WS2812` circuit, that is shown in the capture below, composed of a D Latch, a 3-bit counter with reset and one Look-Up Table (LUT). The output value of the 4-bit LUT is `0x7E0E`, used to manage the specific timings for the WS2812 LED matrix, which can be found in this [data sheet](https://cdn-shop.adafruit.com/datasheets/WS2812.pdf). The first three inputs of the LUT (A, B, C) are the outputs of the 3-bit counter, while the fourth input of the LUT is used to choose the right pattern for the matrix, so there are two sets of eight bits. In the green box the D value is `0`, meaning the "0 code" is chosen and described by three high periods and five low periods, and the "1 code" is described by six periods high and two periods low. Those periods represent the right timings mentioned in the data sheet to power up the LEDs in the desired pattern.
 
 <br><img src="images/mcc_clb_spi_to_ws2812.png" width="800">
 
@@ -136,11 +136,11 @@ The following peripheral and clock configurations are set up using the MPLAB Cod
 
 ## Demo
 
-Two patterns are saved in the `image.h` header file called `imageR` and `imageG` variables. Those variables help display **CLB** acronym in two different colors, red and green, as shown in the demo below. Only two wires are needed between the microcontroller and the WS2812 - the output pin from the CLB (RB7) and the ground (GND).
+Two patterns are saved in the `image.h` header file called `imageR` and `imageG` variables. Those variables help display the **CLB** acronym in two different colors, red and green, as shown in the demo below. Only two wires are needed between the microcontroller and the WS2812 - the output pin from the CLB (RB7) and the ground (GND).
 
 <br><img src="images/demo.gif" width="1000">
 
-**Note:** The WS2812 matrix must be externally powered up due to higher power consumption.
+**Note:** The WS2812 matrix must be externally powered up due to a higher power consumption.
 
 <br>
 
