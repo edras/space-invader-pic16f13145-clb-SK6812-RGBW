@@ -46,6 +46,7 @@
 #include "../system/clock.h"
 #include "../clb/clb1.h"
 #include "../spi/mssp1.h"
+#include "../timer/tmr0.h"
 
 /**
  * @ingroup systemdriver

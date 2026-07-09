@@ -25,6 +25,10 @@
           <itemPath>mcc_generated_files/system/interrupt.h</itemPath>
           <itemPath>mcc_generated_files/system/system.h</itemPath>
         </logicalFolder>
+        <logicalFolder name="timer" displayName="timer" projectFiles="true">
+          <itemPath>mcc_generated_files/timer/tmr0_deprecated.h</itemPath>
+          <itemPath>mcc_generated_files/timer/tmr0.h</itemPath>
+        </logicalFolder>
       </logicalFolder>
       <itemPath>image.h</itemPath>
     </logicalFolder>
@@ -69,6 +73,11 @@
             <itemPath>mcc_generated_files/system/src/interrupt.c</itemPath>
           </logicalFolder>
         </logicalFolder>
+        <logicalFolder name="timer" displayName="timer" projectFiles="true">
+          <logicalFolder name="src" displayName="src" projectFiles="true">
+            <itemPath>mcc_generated_files/timer/src/tmr0.c</itemPath>
+          </logicalFolder>
+        </logicalFolder>
       </logicalFolder>
       <itemPath>main.c</itemPath>
     </logicalFolder>
@@ -84,7 +93,7 @@
         <targetDevice>PIC16F13145</targetDevice>
         <targetHeader></targetHeader>
         <targetPluginBoard></targetPluginBoard>
-        <platformTool>noID</platformTool>
+        <platformTool>Simulator</platformTool>
         <languageToolchain>XC8</languageToolchain>
         <languageToolchainVersion>3.10</languageToolchainVersion>
         <platform>3</platform>
@@ -213,6 +222,12 @@
         <property key="program-the-device-with-default-config-words" value="false"/>
         <property key="remove-unused-sections" value="true"/>
       </HI-TECH-LINK>
+      <Simulator>
+        <property key="W0106_SIM_PERIPH_PARTIAL_SUPPORT" value="report"/>
+        <property key="W0237_ADC_UNKNOWN_DATASHEET" value="report"/>
+        <property key="W1601_PPS_INVALID_PIN_DESCRIPTION" value="report"/>
+        <property key="periphADC1.minTacq" value="4"/>
+      </Simulator>
       <Tool>
         <property key="AutoSelectMemRanges" value="auto"/>
         <property key="Freeze Peripherals" value="true"/>

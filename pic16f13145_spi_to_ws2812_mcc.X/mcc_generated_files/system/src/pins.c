@@ -47,16 +47,16 @@ void PIN_MANAGER_Initialize(void)
     /**
     TRISx registers
     */
-    TRISA = 0x37;
-    TRISB = 0x0;
-    TRISC = 0xFF;
+    TRISA = 0x36;
+    TRISB = 0xE0;
+    TRISC = 0xF9;
 
     /**
     ANSELx registers
     */
-    ANSELA = 0x37;
-    ANSELB = 0x0;
-    ANSELC = 0xFF;
+    ANSELA = 0x26;
+    ANSELB = 0xE0;
+    ANSELC = 0xC1;
 
     /**
     WPUx registers
@@ -81,17 +81,14 @@ void PIN_MANAGER_Initialize(void)
     /**
     INLVLx registers
     */
-    INLVLA = 0x3F;
-    INLVLB = 0x0;
-    INLVLC = 0xFF;
+    INLVLA = 0x2E;
+    INLVLB = 0xE0;
+    INLVLC = 0xC1;
 
     /**
     PPS registers
     */
-    RB4PPS = 0x24;  //RB4->CLB1:CLBPPSOUT0;
-    RB5PPS = 0x25;  //RB5->CLB1:CLBPPSOUT1;
-    RB6PPS = 0x26;  //RB6->CLB1:CLBPPSOUT2;
-    RB7PPS = 0x2B;  //RB7->CLB1:CLBPPSOUT7;
+    RA0PPS = 0x2B;  //RA0->CLB1:CLBPPSOUT7;
 
     /**
     APFCON registers

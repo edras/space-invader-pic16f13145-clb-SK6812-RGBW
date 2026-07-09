@@ -49,6 +49,32 @@ void  INTERRUPT_Initialize (void)
 
 }
 
+/**
+ * @ingroup interrupt
+ * @brief Services the Interrupt Service Routines (ISR) of enabled interrupts and is called every time an interrupt is triggered.
+ * @pre Interrupt Manager is initialized.
+ * @param None.
+ * @return None.
+ */
+void __interrupt() INTERRUPT_InterruptManager (void)
+{
+    // interrupt handler
+    if(INTCONbits.PEIE == 1)
+    {
+        if(PIE0bits.TMR0IE == 1 && PIR0bits.TMR0IF == 1)
+        {
+            TMR0_ISR();
+        } 
+        else
+        {
+            //Unhandled Interrupt
+        }
+    }      
+    else
+    {
+        //Unhandled Interrupt
+    }
+}
 
 void INT_ISR(void)
 {
