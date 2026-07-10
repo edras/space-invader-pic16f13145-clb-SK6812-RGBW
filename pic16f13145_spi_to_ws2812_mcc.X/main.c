@@ -385,6 +385,21 @@ static void Invaders_Advance(void)
 }
 
 /* -------------------------------------------------------------------------
+ * Remove the invader at strip[pos] and compact the group.
+ * Shifts strip[pos+1 .. NUM_LEDS-1] down by one and clears the tail.
+ * invader_head is NOT changed: the compaction moves the next invader into
+ * position pos, keeping the front of the group at the same index while
+ * the tail shrinks by one — the group is one LED shorter overall.
+ * ---------------------------------------------------------------------- */
+static void Destroy_Invader(uint16_t pos)
+{
+    uint16_t j;
+    for (j = pos; j < NUM_LEDS - 1u; j++)
+        strip[j] = strip[j + 1u];
+    strip[NUM_LEDS - 1u] = COLOR_NONE;
+}
+
+/* -------------------------------------------------------------------------
  * Advance all active shots one step.
  * ---------------------------------------------------------------------- */
 static void Shots_Advance(void)
@@ -407,7 +422,7 @@ static void Shots_Advance(void)
         if (strip[shots[i].pos] != COLOR_NONE)
         {
             if (strip[shots[i].pos] == shots[i].color)
-                strip[shots[i].pos] = COLOR_NONE;
+                Destroy_Invader((uint16_t)shots[i].pos);
             shots[i].pos = -1;
         }
     }
