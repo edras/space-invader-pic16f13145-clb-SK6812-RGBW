@@ -1,17 +1,24 @@
 /*
- * Space Invaders 1D - PIC16F13145 + WS2812 LED Strip
+ * Space Invaders 1D - PIC16F13145 + SK6812 GRBW LED Strip
  *
- * LED strip: 300 LEDs, index 0 = player end, index 299 = spawn end.
- * Invaders march from index 299 toward index 0. The group starts at
- * LEDs 280-299 with 20 random colors, grows by one each game tick, and
- * accelerates over time. Shots (R/G/B) travel from index 0 toward 299.
- * A shot destroys the first invader it hits only if the colors match;
- * otherwise the shot is absorbed with no effect on the invader.
+ * LED strip: 300 LEDs (SK6812 GRBW, 4 bytes/LED), index 0 = player end,
+ * index 299 = spawn end. Invaders march from 299 toward 0. The group
+ * starts at LEDs 280-299 (20 LEDs) with fixed width. Shots (R/G/B) travel
+ * from index 0 toward 299. A shot destroys the first invader it hits only
+ * if the colours match; otherwise it is absorbed.
  * Game over when any invader reaches index 0. PB1 restarts.
  *
- * RAM strategy: no frame buffer. GRB bytes are computed and sent to SPI
+ * RAM strategy: no frame buffer. GRBW bytes are computed and sent to SPI
  * one at a time during WriteLEDs(), keeping RAM use to ~300 bytes for the
  * strip[] array plus small globals (well within the 2048-byte limit).
+ *
+ * Interrupt / timing note:
+ * Global interrupts are disabled for the entire WriteLEDs() call.
+ * SK6812 strips treat any gap > ~80 us between bytes as a RESET,
+ * so the 1 ms TMR0 interrupt must be masked during SPI streaming.
+ * At 800 kHz, 1200 bytes take ~15 ms. To keep ms_tick accurate,
+ * WriteLEDs() adds RENDER_MS back to ms_tick after re-enabling
+ * interrupts, compensating for the time the timer was frozen.
  *
  * Buttons:
  *   PB1 (RC4) - Restart / start game
@@ -68,6 +75,15 @@ typedef enum {
 #define SPEED_UP_STEP_MS    30u     /* ms shaved off per speed-up           */
 #define SHOT_STEP_MS        50u     /* ms between shot position advances    */
 
+/* Time (ms) to clock out one full frame: 300 LEDs * 4 bytes * 10 bits
+ * at 800 kHz = 15 ms. Rounded up to 16 to account for SPI overhead.
+ * Added back to ms_tick after each WriteLEDs() call so that the software
+ * timer stays in sync with real time despite interrupts being masked.
+ *
+ * NOTE: The strip is SK6812 GRBW — 4 bytes per LED (G, R, B, W).
+ * The W (white) channel is always sent as 0x00. */
+#define RENDER_MS           16u
+
 /* -------------------------------------------------------------------------
  * Game state
  * ---------------------------------------------------------------------- */
@@ -81,10 +97,11 @@ typedef enum {
  * 300 bytes — the only large RAM allocation in this file. */
 static color_id_t strip[NUM_LEDS];
 
-/* Shot state: one slot per color (0=RED, 1=GREEN, 2=BLUE) */
+/* Shot state: one slot per colour (0=RED, 1=GREEN, 2=BLUE).
+ * pos >= 0 means active at that LED index; -1 = inactive. */
 #define NUM_SHOTS   3u
 typedef struct {
-    int16_t    pos;     /* current LED index; -1 = inactive */
+    int16_t    pos;
     color_id_t color;
 } shot_t;
 
@@ -198,13 +215,17 @@ static void SPI_SendByte(uint8_t byte)
 }
 
 /* -------------------------------------------------------------------------
- * Stream the entire strip to the WS2812 via SPI — no frame buffer needed.
+ * Stream the entire strip to the SK6812 via SPI — no frame buffer needed.
+ *
+ * The strip is SK6812 GRBW: each LED requires 4 bytes in the order
+ * G, R, B, W. The W (white) channel is always sent as 0x00 so that
+ * only the RGB channels are used for colour mixing.
  *
  * For each LED:
  *   1. Determine effective color: shot overlay takes priority over invader.
  *   2. In STATE_GAME_OVER with blink_invaders=0, invaders are dark.
  *   3. In STATE_IDLE, LED 0 pulses dim white; all others are off.
- *   4. Transmit G, R, B bytes in order (WS2812 GRB protocol).
+ *   4. Transmit G, R, B, W=0 bytes in order (SK6812 GRBW protocol).
  * ---------------------------------------------------------------------- */
 static void WriteLEDs(uint8_t blink_invaders)
 {
@@ -213,7 +234,17 @@ static void WriteLEDs(uint8_t blink_invaders)
     color_id_t pixel;
     uint8_t   shot_idx;
 
+    /* Disable interrupts for the entire SPI stream.
+     * Any gap > ~50 us between bytes is a RESET on SK6812/WS2812 strips.
+     * The TMR0 ISR latency (~1 ms) would split the frame mid-stream and
+     * corrupt colors. Holding interrupts off for ~9 ms (900 bytes at
+     * ~800 kHz) is safe; ms_tick loses at most 9 counts per render. */
+    INTERRUPT_GlobalInterruptDisable();
+
     SPI1_Open(MSSP1_DEFAULT);
+
+    /* Clear any stale SSP1IF flag before the first byte. */
+    PIR5bits.SSP1IF = 0U;
 
     for (i = 0; i < NUM_LEDS; i++)
     {
@@ -267,9 +298,22 @@ static void WriteLEDs(uint8_t blink_invaders)
         SPI_SendByte(g);
         SPI_SendByte(r);
         SPI_SendByte(b);
+        SPI_SendByte(0);    /* W channel = 0 (SK6812 GRBW, white unused) */
     }
 
     SPI1_Close();
+
+    /* Hold the data line low for >80 us so the SK6812 strip latches the
+     * completed frame and resets its internal LED counter to zero.
+     * Without this, consecutive frames bleed together in streaming mode
+     * and the strip misinterprets byte boundaries between frames. */
+    __delay_us(100);
+
+    /* Re-enable interrupts now that the full frame is clocked out.
+     * Compensate ms_tick for the time that was frozen during the render
+     * so that game timing stays in sync with real elapsed time. */
+    ms_tick += RENDER_MS;
+    INTERRUPT_GlobalInterruptEnable();
 }
 
 /* -------------------------------------------------------------------------
@@ -283,7 +327,7 @@ static void Game_Init(void)
     for (i = 0; i < NUM_LEDS; i++)
         strip[i] = COLOR_NONE;
 
-    /* Deactivate shots, assign colors */
+    /* Deactivate shots, assign colours */
     shots[0].pos = -1; shots[0].color = COLOR_RED;
     shots[1].pos = -1; shots[1].color = COLOR_GREEN;
     shots[2].pos = -1; shots[2].color = COLOR_BLUE;
@@ -305,7 +349,7 @@ static void Game_Init(void)
 }
 
 /* -------------------------------------------------------------------------
- * Fire a shot (called from button handler)
+ * Fire a shot (called from button handler).
  * ---------------------------------------------------------------------- */
 static void Fire_Shot(uint8_t shot_index)
 {
@@ -315,8 +359,9 @@ static void Fire_Shot(uint8_t shot_index)
 
 /* -------------------------------------------------------------------------
  * Advance invaders one step toward the player (index 0).
- * Only the occupied window [invader_head .. NUM_LEDS-1] is shifted;
- * LEDs below invader_head are untouched (they are already COLOR_NONE).
+ * The whole occupied window [invader_head .. NUM_LEDS-1] shifts down by
+ * one. The vacated tail position is set to COLOR_NONE so the group keeps
+ * a fixed width as it marches.
  * ---------------------------------------------------------------------- */
 static void Invaders_Advance(void)
 {
@@ -328,13 +373,10 @@ static void Invaders_Advance(void)
         return;
     }
 
-    /* Write new position for each LED in the occupied window.
-     * Destination index = i-1, source index = i. */
     for (i = invader_head; i < NUM_LEDS; i++)
         strip[i - 1u] = strip[i];
 
-    /* Spawn a new random invader at the far end */
-    strip[NUM_LEDS - 1u] = (color_id_t)Rng_NextColor();
+    strip[NUM_LEDS - 1u] = COLOR_NONE;
 
     invader_head--;
 
@@ -343,7 +385,7 @@ static void Invaders_Advance(void)
 }
 
 /* -------------------------------------------------------------------------
- * Advance all active shots one step
+ * Advance all active shots one step.
  * ---------------------------------------------------------------------- */
 static void Shots_Advance(void)
 {
@@ -365,8 +407,8 @@ static void Shots_Advance(void)
         if (strip[shots[i].pos] != COLOR_NONE)
         {
             if (strip[shots[i].pos] == shots[i].color)
-                strip[shots[i].pos] = COLOR_NONE;   /* color match: destroy */
-            shots[i].pos = -1;                      /* shot always consumed */
+                strip[shots[i].pos] = COLOR_NONE;
+            shots[i].pos = -1;
         }
     }
 }
@@ -432,7 +474,7 @@ int main(void)
     btn_pb4.last_raw = 0; btn_pb4.stable = 0;
     btn_pb4.change_ms = 0; btn_pb4.pressed_event = 0;
 
-    /* Clear shot array */
+    /* Deactivate shots */
     shots[0].pos = -1; shots[0].color = COLOR_RED;
     shots[1].pos = -1; shots[1].color = COLOR_GREEN;
     shots[2].pos = -1; shots[2].color = COLOR_BLUE;
@@ -469,7 +511,7 @@ int main(void)
             {
                 Game_Init();
             }
-            else if (Elapsed(blink_ms) >= 600u)
+            else if (Elapsed(blink_ms) >= 500u)
             {
                 blink_ms = Ms_Now();
                 blink_on = !blink_on;
@@ -498,8 +540,6 @@ int main(void)
                 LED5_SetHigh();
             }
 
-            /* Refresh strip every loop pass for smooth shot movement.
-               Each full refresh takes ~9 ms (900 bytes at 800 kHz). */
             WriteLEDs(1);
         }
 
