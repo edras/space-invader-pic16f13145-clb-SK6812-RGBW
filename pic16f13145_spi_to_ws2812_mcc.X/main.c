@@ -14,36 +14,31 @@
  *   0x82        GREEN shot
  *   0x83        BLUE  shot
  *
- * Invaders march from index 299 toward 0. The group starts at LEDs
- * 280-299 and accelerates over time.
+ * Two game modes selected in IDLE by short-pressing PB1:
+ *   MODE_CLASSIC  — fixed group of 20 invaders, you can win by destroying
+ *                   them all (rainbow celebration). Idle blink: 1 s.
+ *   MODE_ENDLESS  — a new invader is appended every step so the group
+ *                   grows forever; survive as long as possible.
+ *                   Idle blink: fast (150 ms).
+ * Long-press PB1 (>= 1 s) starts the selected mode.
  *
- * Shots travel from index 0 toward 299. Firing writes a shot cell into
- * strip[0] if it is empty; multiple shots coexist naturally as separate
- * cells. Each runner tick moves every shot one step forward. If a shot
- * lands on an invader of the same colour both are removed; otherwise
- * only the shot is removed.
- *
- * Game over when any invader reaches index 0. PB1 restarts.
- *
- * RAM: strip[300] is placed in BIGRAM (program-memory-mapped SRAM,
- * 0x2000-0x23EF) — the only contiguous 300-byte region on PIC16F13145.
- * BIGRAM is true SRAM; writes do NOT touch flash.
- *
- * Interrupt / timing note:
- * Global interrupts are disabled for the entire WriteLEDs() call.
- * SK6812 strips treat any gap > ~80 us between bytes as a RESET,
- * so the 1 ms TMR0 interrupt must be masked during SPI streaming.
- * At 800 kHz, 1200 bytes take ~15 ms. WriteLEDs() adds RENDER_MS
- * back to ms_tick after re-enabling interrupts to compensate.
+ * Win  (classic only): rainbow sweep across the strip, then back to idle.
+ * Lose: entire strip blinks red three times, then back to idle.
  *
  * Buttons:
- *   PB1 (RC4) - Restart / start game
+ *   PB1 (RC4) - Short press: cycle mode in IDLE / restart in-game
+ *               Long press:  start selected mode
  *   PB2 (RC5) - Fire red shot
  *   PB3 (RA4) - Fire green shot
  *   PB4 (RC3) - Fire blue shot
  *
- * On-board LEDs:
- *   LED3/LED4/LED5 blink together during game over.
+ * On-board LEDs: LED3/LED4/LED5 used as mode indicators in IDLE.
+ *
+ * RAM: strip[300] is in BIGRAM (program-memory-mapped SRAM, 0x2000-0x23EF).
+ * BIGRAM is true SRAM; writes do NOT touch flash.
+ *
+ * Timing: interrupts disabled during WriteLEDs (~15 ms at 800 kHz).
+ * ms_tick is compensated by RENDER_MS after each frame.
  */
 
 #include "mcc_generated_files/system/system.h"
@@ -53,7 +48,7 @@
  * ---------------------------------------------------------------------- */
 #define NUM_LEDS            300u
 
-/* Brightness cap ~35%: 255 * 0.35 = 89 */
+/* Brightness cap ~35% */
 #define BRIGHT(x)           ((uint8_t)(((uint16_t)(x) * 89u) / 255u))
 
 #define COL_RED_G   0x00
@@ -68,8 +63,7 @@
 #define COL_BLU_R   0x00
 #define COL_BLU_B   BRIGHT(0xFF)
 
-/* Dim white used for idle blink at LED 0 */
-#define COL_IDLE    BRIGHT(0x20)
+#define COL_IDLE    BRIGHT(0x20)   /* dim white for idle blink */
 
 /* -------------------------------------------------------------------------
  * Cell encoding
@@ -82,63 +76,91 @@
 #define CELL_SHOT_GREEN 0x82u
 #define CELL_SHOT_BLUE  0x83u
 
-#define CELL_SHOT_FLAG  0x80u               /* bit set = shot, clear = invader */
-#define CELL_COLOR(c)   ((uint8_t)((c) & 0x03u))  /* 1=red 2=green 3=blue     */
+#define CELL_SHOT_FLAG  0x80u
+#define CELL_COLOR(c)   ((uint8_t)((c) & 0x03u))
 #define CELL_IS_SHOT(c) ((uint8_t)((c) & CELL_SHOT_FLAG))
 #define CELL_IS_INV(c)  ((uint8_t)((c) != CELL_EMPTY && !CELL_IS_SHOT(c)))
 
 /* -------------------------------------------------------------------------
  * Game constants
  * ---------------------------------------------------------------------- */
-#define INVADER_START_POS   280u    /* first invader index at game start    */
-#define GAME_TICK_INIT_MS   500u    /* initial ms between invader advances  */
-#define GAME_TICK_MIN_MS    100u    /* fastest tick period                  */
-#define SPEED_UP_EVERY      10u     /* ticks between speed increases        */
-#define SPEED_UP_STEP_MS    30u     /* ms shaved off per speed-up           */
-#define SHOT_STEP_MS        50u     /* ms between shot runner ticks         */
-
-/* Time (ms) to clock out one full frame: 300 LEDs * 4 bytes * 10 bits
- * at 800 kHz = 15 ms. Rounded up to 16 to account for SPI overhead. */
+#define INVADER_START_POS   280u
+#define GAME_TICK_INIT_MS   500u
+#define GAME_TICK_MIN_MS    100u
+#define SPEED_UP_EVERY      10u
+#define SPEED_UP_STEP_MS    30u
+#define SHOT_STEP_MS        50u
 #define RENDER_MS           16u
 
+/* Idle blink periods */
+#define BLINK_CLASSIC_MS    500u    /* 1 s total (500 ms half-period)       */
+#define BLINK_ENDLESS_MS    75u     /* 150 ms total (fast)                  */
+
+/* Long-press threshold to start the game */
+#define LONG_PRESS_MS       1000u
+
+/* Game-over strip blink: number of red flashes and their period */
+#define GAMEOVER_FLASHES    6u      /* 3 on + 3 off = 3 full blinks         */
+#define GAMEOVER_BLINK_MS   200u
+
+/* Rainbow: number of frames to show and frame period */
+#define RAINBOW_FRAMES      60u
+#define RAINBOW_FRAME_MS    50u
+
 /* -------------------------------------------------------------------------
- * Game state
+ * Game / UI states
  * ---------------------------------------------------------------------- */
 typedef enum {
     STATE_IDLE,
     STATE_PLAYING,
+    STATE_WIN,
     STATE_GAME_OVER
 } game_state_t;
 
-/* Unified strip array — holds both invaders and shots as encoded cells.
- * 300 bytes placed in BIGRAM by the linker (only contiguous region). */
-static uint8_t strip[NUM_LEDS];
+typedef enum {
+    MODE_CLASSIC = 0,
+    MODE_ENDLESS  = 1
+} game_mode_t;
 
-/* Timing / counters */
+/* -------------------------------------------------------------------------
+ * Global variables
+ * ---------------------------------------------------------------------- */
+static uint8_t strip[NUM_LEDS];      /* unified cell array in BIGRAM        */
+
 static volatile uint16_t ms_tick;
 static game_state_t      game_state;
-static uint16_t          invader_head;   /* player-side edge of invader group */
+static game_mode_t       game_mode;
+static uint16_t          invader_head;
 static uint16_t          game_tick_ms;
 static uint16_t          tick_counter;
 static uint16_t          last_invader_ms;
 static uint16_t          last_shot_ms;
 
-/* LCG PRNG state */
 static uint16_t rng_state = 0xACE1u;
 
-/* Idle/game-over blink state */
 static uint16_t blink_ms;
 static uint8_t  blink_on;
 
+/* Win/lose animation counters */
+static uint8_t  anim_count;         /* frames remaining in animation        */
+static uint16_t anim_ms;            /* last animation tick timestamp        */
+static uint8_t  rainbow_offset;     /* hue offset for rainbow sweep         */
+
 /* -------------------------------------------------------------------------
- * Button debounce
+ * Button debounce — on-release short/long press classification.
+ *
+ * pressed_event    fires on release if held < LONG_PRESS_MS  (short press)
+ * long_press_event fires on release if held >= LONG_PRESS_MS (long press)
  * ---------------------------------------------------------------------- */
 #define DEBOUNCE_MS  20u
 typedef struct {
     uint8_t  last_raw;
     uint8_t  stable;
-    uint16_t change_ms;
+    uint16_t change_ms;     /* timestamp of last raw-level change (debounce) */
+    uint16_t press_ms;      /* timestamp when stable press was confirmed      */
     uint8_t  pressed_event;
+    uint8_t  long_press_event;
+    uint8_t  long_fired;    /* marks that hold threshold was crossed          */
 } button_t;
 
 static button_t btn_pb1, btn_pb2, btn_pb3, btn_pb4;
@@ -149,20 +171,19 @@ static button_t btn_pb1, btn_pb2, btn_pb3, btn_pb4;
 static void    Game_Init(void);
 static void    Game_Update(void);
 static void    WriteLEDs(uint8_t blink_invaders);
+static void    WriteRainbowFrame(uint8_t offset);
+static void    WriteAllRed(uint8_t on);
 static void    Debounce_Update(button_t *b, uint8_t raw);
 static uint8_t Rng_NextColor(void);
 
 /* -------------------------------------------------------------------------
- * TMR0 1 ms callback (ISR context)
+ * TMR0 1 ms callback
  * ---------------------------------------------------------------------- */
 void Timer_1ms_Callback(void)
 {
     ms_tick++;
 }
 
-/* -------------------------------------------------------------------------
- * Atomic 16-bit snapshot of ms_tick.
- * ---------------------------------------------------------------------- */
 static uint16_t Ms_Now(void)
 {
     uint16_t t;
@@ -172,29 +193,35 @@ static uint16_t Ms_Now(void)
     return t;
 }
 
-/* -------------------------------------------------------------------------
- * Elapsed time helper (wraps safely at 65535)
- * ---------------------------------------------------------------------- */
 static uint16_t Elapsed(uint16_t since)
 {
     return (uint16_t)(Ms_Now() - since);
 }
 
 /* -------------------------------------------------------------------------
- * LCG pseudo-random — returns CELL_INV_RED/GREEN/BLUE
+ * LCG PRNG — returns 1 (RED), 2 (GREEN), or 3 (BLUE)
  * ---------------------------------------------------------------------- */
 static uint8_t Rng_NextColor(void)
 {
     rng_state = rng_state * 25173u + 13849u;
-    return (uint8_t)((rng_state >> 8u) % 3u) + 1u;  /* 1, 2, or 3 */
+    return (uint8_t)((rng_state >> 8u) % 3u) + 1u;
 }
 
 /* -------------------------------------------------------------------------
- * Button debounce
+ * Button debounce + on-release short/long press classification.
+ *
+ * Events are generated on RELEASE so the full hold duration is known:
+ *   pressed_event    = released after  < LONG_PRESS_MS  (short press)
+ *   long_press_event = released after >= LONG_PRESS_MS  (long press)
  * ---------------------------------------------------------------------- */
 static void Debounce_Update(button_t *b, uint8_t raw)
 {
-    b->pressed_event = 0;
+    b->pressed_event    = 0;
+    b->long_press_event = 0;
+
+    /* --- Debounce: detect stable edges -------------------------------
+     * Track raw changes; only accept a new level after it has been
+     * stable for DEBOUNCE_MS. */
     if (raw != b->last_raw)
     {
         b->last_raw  = raw;
@@ -204,13 +231,35 @@ static void Debounce_Update(button_t *b, uint8_t raw)
     {
         uint8_t prev = b->stable;
         b->stable    = raw;
-        if (b->stable == 1u && prev == 0u)
-            b->pressed_event = 1;
+
+        if (prev == 0u && raw == 1u)
+        {
+            /* Press confirmed: start timing the hold */
+            b->press_ms   = Ms_Now();
+            b->long_fired = 0;
+        }
+        else if (prev == 1u && raw == 0u)
+        {
+            /* Release confirmed: classify by hold duration */
+            if (b->long_fired)
+                b->long_press_event = 1;
+            else
+                b->pressed_event    = 1;
+        }
+    }
+
+    /* --- Long-press threshold: runs every call while button is held --
+     * Must be outside the debounce block so it updates even when
+     * raw == stable (no edge, just held). */
+    if (b->stable == 1u && !b->long_fired &&
+        Elapsed(b->press_ms) >= LONG_PRESS_MS)
+    {
+        b->long_fired = 1;
     }
 }
 
 /* -------------------------------------------------------------------------
- * Write a single byte to SPI and block until transmission is complete.
+ * SPI byte helper
  * ---------------------------------------------------------------------- */
 static void SPI_SendByte(uint8_t byte)
 {
@@ -218,11 +267,35 @@ static void SPI_SendByte(uint8_t byte)
 }
 
 /* -------------------------------------------------------------------------
- * Stream the entire strip to the SK6812 via SPI.
+ * Simple hue-to-GRB for rainbow (3-segment, brightness capped at ~35%).
+ * hue: 0-255 wrapping.  Returns g, r, b via pointers.
  *
- * Each cell value is mapped directly to GRB colour bytes — both invaders
- * and shots use the same colour bits (bits 1-0). The shot flag (bit 7)
- * is masked out before colour lookup.
+ * Hue segments (each 85 units wide):
+ *   0 -  84  : R→G  (red fades out, green fades in)
+ *  85 - 169  : G→B  (green fades out, blue fades in)
+ * 170 - 254  : B→R  (blue fades out, red fades in)
+ * ---------------------------------------------------------------------- */
+static void Hue_To_GRB(uint8_t hue, uint8_t *g, uint8_t *r, uint8_t *b)
+{
+    uint8_t seg = (uint8_t)(hue / 85u);
+    uint8_t pos = (uint8_t)(hue % 85u);
+    uint8_t hi  = BRIGHT(0xFF);
+    uint8_t lo  = (uint8_t)(((uint16_t)hi * pos) / 85u);
+    uint8_t hi2 = (uint8_t)(hi - lo);
+
+    *g = 0; *r = 0; *b = 0;
+    switch (seg)
+    {
+        case 0u: *r = hi2; *g = lo;  break;  /* R→G */
+        case 1u: *g = hi2; *b = lo;  break;  /* G→B */
+        default: *b = hi2; *r = lo;  break;  /* B→R */
+    }
+}
+
+/* -------------------------------------------------------------------------
+ * Render current strip[] state to LEDs.
+ * blink_invaders: 1 = show invaders (PLAYING or win blink-on),
+ *                 0 = invaders dark (idle / blink-off).
  * ---------------------------------------------------------------------- */
 static void WriteLEDs(uint8_t blink_invaders)
 {
@@ -231,7 +304,6 @@ static void WriteLEDs(uint8_t blink_invaders)
     uint8_t  cell;
 
     INTERRUPT_GlobalInterruptDisable();
-
     SPI1_Open(MSSP1_DEFAULT);
     PIR5bits.SSP1IF = 0U;
 
@@ -241,7 +313,6 @@ static void WriteLEDs(uint8_t blink_invaders)
 
         if (game_state == STATE_IDLE)
         {
-            /* Idle: only LED 0 blinks dim white */
             if (i == 0u && blink_on)
             {
                 g = COL_IDLE; r = COL_IDLE; b = COL_IDLE;
@@ -262,7 +333,7 @@ static void WriteLEDs(uint8_t blink_invaders)
         SPI_SendByte(g);
         SPI_SendByte(r);
         SPI_SendByte(b);
-        SPI_SendByte(0);    /* W channel = 0 (SK6812 GRBW, white unused) */
+        SPI_SendByte(0);
     }
 
     SPI1_Close();
@@ -272,7 +343,69 @@ static void WriteLEDs(uint8_t blink_invaders)
 }
 
 /* -------------------------------------------------------------------------
- * Initialize / restart the game
+ * Render a rainbow frame directly to the strip (bypasses strip[] array).
+ * offset: starting hue, advances each call to animate the sweep.
+ * ---------------------------------------------------------------------- */
+static void WriteRainbowFrame(uint8_t offset)
+{
+    uint16_t i;
+    uint8_t  g, r, b;
+
+    INTERRUPT_GlobalInterruptDisable();
+    SPI1_Open(MSSP1_DEFAULT);
+    PIR5bits.SSP1IF = 0U;
+
+    for (i = 0; i < NUM_LEDS; i++)
+    {
+        /* Spread hue 0-254 evenly across the strip, shifted by offset.
+         * i * 255 / 300 overflows uint16_t for i > 257, so use the
+         * equivalent i * 85 / 100 which stays within 16-bit range
+         * (max 299 * 85 = 25415). */
+        uint8_t hue = (uint8_t)((uint16_t)(i * 85u / 100u) + offset);
+        Hue_To_GRB(hue, &g, &r, &b);
+        SPI_SendByte(g);
+        SPI_SendByte(r);
+        SPI_SendByte(b);
+        SPI_SendByte(0);
+    }
+
+    SPI1_Close();
+    __delay_us(100);
+    ms_tick += RENDER_MS;
+    INTERRUPT_GlobalInterruptEnable();
+}
+
+/* -------------------------------------------------------------------------
+ * Render full strip in solid red (on=1) or all off (on=0).
+ * Used for game-over flash.
+ * ---------------------------------------------------------------------- */
+static void WriteAllRed(uint8_t on)
+{
+    uint16_t i;
+    uint8_t  g = 0, r = 0, b = 0;
+
+    if (on) { r = COL_RED_R; }
+
+    INTERRUPT_GlobalInterruptDisable();
+    SPI1_Open(MSSP1_DEFAULT);
+    PIR5bits.SSP1IF = 0U;
+
+    for (i = 0; i < NUM_LEDS; i++)
+    {
+        SPI_SendByte(g);
+        SPI_SendByte(r);
+        SPI_SendByte(b);
+        SPI_SendByte(0);
+    }
+
+    SPI1_Close();
+    __delay_us(100);
+    ms_tick += RENDER_MS;
+    INTERRUPT_GlobalInterruptEnable();
+}
+
+/* -------------------------------------------------------------------------
+ * Initialize / restart the game in the current game_mode.
  * ---------------------------------------------------------------------- */
 static void Game_Init(void)
 {
@@ -281,7 +414,6 @@ static void Game_Init(void)
     for (i = 0; i < NUM_LEDS; i++)
         strip[i] = CELL_EMPTY;
 
-    /* Seed 20 invaders at LEDs 280-299 */
     for (i = INVADER_START_POS; i < NUM_LEDS; i++)
         strip[i] = Rng_NextColor();
 
@@ -298,9 +430,7 @@ static void Game_Init(void)
 }
 
 /* -------------------------------------------------------------------------
- * Fire a shot of the given colour (shot_cell = CELL_SHOT_RED/GREEN/BLUE).
- * Places the shot at index 0 only if that cell is empty, so the player
- * cannot overwrite a shot already at the muzzle.
+ * Fire a shot — places shot cell at strip[0] if empty.
  * ---------------------------------------------------------------------- */
 static void Fire_Shot(uint8_t shot_cell)
 {
@@ -309,22 +439,26 @@ static void Fire_Shot(uint8_t shot_cell)
 }
 
 /* -------------------------------------------------------------------------
- * Runner: advance all shots one step toward the invaders (index 0 → 299).
- *
- * Walk from index NUM_LEDS-2 down to 0 (high-to-low so a shot does not
- * move more than one step per tick even if it was just placed).
- * For each shot cell at index i:
- *   - If strip[i+1] is an invader of the same colour: both vanish.
- *   - If strip[i+1] is an invader of a different colour: shot vanishes.
- *   - If strip[i+1] is empty: move shot to i+1, clear i.
- *   - If strip[i+1] is another shot: leave both in place (shots don't
- *     collide with each other).
+ * Check if all invaders have been destroyed (no invader cells remain).
+ * Only meaningful in MODE_CLASSIC.
+ * ---------------------------------------------------------------------- */
+static uint8_t All_Invaders_Gone(void)
+{
+    uint16_t i;
+    for (i = 0; i < NUM_LEDS; i++)
+        if (CELL_IS_INV(strip[i]))
+            return 0;
+    return 1;
+}
+
+/* -------------------------------------------------------------------------
+ * Shot runner: advance all shots one step toward the invaders.
+ * Walk high-to-low so each shot moves at most one step per tick.
  * ---------------------------------------------------------------------- */
 static void Shots_Run(void)
 {
     uint16_t i;
-    uint8_t  cell;
-    uint8_t  next;
+    uint8_t  cell, next;
 
     for (i = NUM_LEDS - 2u; ; i--)
     {
@@ -335,37 +469,32 @@ static void Shots_Run(void)
 
             if (next == CELL_EMPTY)
             {
-                /* Move shot forward */
                 strip[i + 1u] = cell;
                 strip[i]      = CELL_EMPTY;
             }
             else if (CELL_IS_INV(next))
             {
-                /* Hit an invader */
                 if (CELL_COLOR(next) == CELL_COLOR(cell))
                 {
-                    /* Colour match: both vanish, compact group */
+                    /* Colour match: destroy invader, compact group */
                     uint16_t j;
                     for (j = i + 1u; j < NUM_LEDS - 1u; j++)
                         strip[j] = strip[j + 1u];
                     strip[NUM_LEDS - 1u] = CELL_EMPTY;
-                    /* invader_head stays: next invader slides into i+1 */
                 }
-                /* Shot consumed regardless of colour match */
-                strip[i] = CELL_EMPTY;
+                strip[i] = CELL_EMPTY;  /* shot consumed either way */
             }
             /* else next is another shot — leave both in place */
         }
 
-        if (i == 0u) break;   /* avoid uint16_t wrap-around */
+        if (i == 0u) break;
     }
 }
 
 /* -------------------------------------------------------------------------
- * Advance invaders one step toward the player (index 0).
- * Shifts the occupied window [invader_head .. NUM_LEDS-1] down by one.
- * Any shots inside the window are carried along with it (they are already
- * in strip[] and shift naturally).
+ * Invader advance: shift group one step toward the player.
+ * In MODE_ENDLESS a new random invader is appended at the tail so the
+ * group never shrinks — only growing and advancing.
  * ---------------------------------------------------------------------- */
 static void Invaders_Advance(void)
 {
@@ -380,7 +509,9 @@ static void Invaders_Advance(void)
     for (i = invader_head; i < NUM_LEDS; i++)
         strip[i - 1u] = strip[i];
 
-    strip[NUM_LEDS - 1u] = CELL_EMPTY;
+    strip[NUM_LEDS - 1u] = (game_mode == MODE_ENDLESS)
+                           ? Rng_NextColor()
+                           : CELL_EMPTY;
     invader_head--;
 
     if (invader_head == 0u)
@@ -398,6 +529,16 @@ static void Game_Update(void)
     {
         last_shot_ms += SHOT_STEP_MS;
         Shots_Run();
+
+        /* Win check: only in classic mode, after shots run */
+        if (game_mode == MODE_CLASSIC && All_Invaders_Gone())
+        {
+            game_state     = STATE_WIN;
+            anim_count     = RAINBOW_FRAMES;
+            rainbow_offset = 0;
+            anim_ms        = Ms_Now();
+            return;
+        }
     }
 
     if ((uint16_t)(now - last_invader_ms) >= game_tick_ms)
@@ -435,14 +576,18 @@ int main(void)
     CLBSWINLbits.CLBSWIN0 = 1;
     __delay_ms(1);
 
-    btn_pb1.last_raw = 0; btn_pb1.stable = 0;
-    btn_pb1.change_ms = 0; btn_pb1.pressed_event = 0;
-    btn_pb2.last_raw = 0; btn_pb2.stable = 0;
-    btn_pb2.change_ms = 0; btn_pb2.pressed_event = 0;
-    btn_pb3.last_raw = 0; btn_pb3.stable = 0;
-    btn_pb3.change_ms = 0; btn_pb3.pressed_event = 0;
-    btn_pb4.last_raw = 0; btn_pb4.stable = 0;
-    btn_pb4.change_ms = 0; btn_pb4.pressed_event = 0;
+    btn_pb1.last_raw = 0; btn_pb1.stable = 0; btn_pb1.change_ms = 0;
+    btn_pb1.press_ms = 0; btn_pb1.pressed_event = 0;
+    btn_pb1.long_press_event = 0; btn_pb1.long_fired = 0;
+    btn_pb2.last_raw = 0; btn_pb2.stable = 0; btn_pb2.change_ms = 0;
+    btn_pb2.press_ms = 0; btn_pb2.pressed_event = 0;
+    btn_pb2.long_press_event = 0; btn_pb2.long_fired = 0;
+    btn_pb3.last_raw = 0; btn_pb3.stable = 0; btn_pb3.change_ms = 0;
+    btn_pb3.press_ms = 0; btn_pb3.pressed_event = 0;
+    btn_pb3.long_press_event = 0; btn_pb3.long_fired = 0;
+    btn_pb4.last_raw = 0; btn_pb4.stable = 0; btn_pb4.change_ms = 0;
+    btn_pb4.press_ms = 0; btn_pb4.pressed_event = 0;
+    btn_pb4.long_press_event = 0; btn_pb4.long_fired = 0;
 
     {
         uint16_t i;
@@ -451,9 +596,12 @@ int main(void)
     }
 
     game_state = STATE_IDLE;
+    game_mode  = MODE_CLASSIC;
     ms_tick    = 0;
     blink_ms   = 0;
     blink_on   = 0;
+    anim_count = 0;
+    anim_ms    = 0;
 
     WriteLEDs(0);
 
@@ -466,6 +614,8 @@ int main(void)
 
         /* -----------------------------------------------------------
          * STATE: IDLE
+         * Short press PB1 → start the selected mode.
+         * Long  press PB1 → cycle to the other mode.
          * --------------------------------------------------------- */
         if (game_state == STATE_IDLE)
         {
@@ -473,20 +623,44 @@ int main(void)
             {
                 Game_Init();
             }
-            else if (Elapsed(blink_ms) >= 500u)
+            else if (btn_pb1.long_press_event)
             {
-                blink_ms = Ms_Now();
-                blink_on = !blink_on;
+                /* Cycle mode */
+                game_mode = (game_mode == MODE_CLASSIC)
+                            ? MODE_ENDLESS : MODE_CLASSIC;
+                blink_ms  = Ms_Now();
+                blink_on  = 1;
                 WriteLEDs(0);
+            }
+            else
+            {
+                uint16_t period = (game_mode == MODE_CLASSIC)
+                                  ? BLINK_CLASSIC_MS : BLINK_ENDLESS_MS;
+                if (Elapsed(blink_ms) >= period)
+                {
+                    blink_ms = Ms_Now();
+                    blink_on = !blink_on;
+                    WriteLEDs(0);
+                }
             }
         }
 
         /* -----------------------------------------------------------
          * STATE: PLAYING
+         * Long press PB1 → abort game and return to IDLE.
          * --------------------------------------------------------- */
         else if (game_state == STATE_PLAYING)
         {
-            if (btn_pb1.pressed_event) Game_Init();
+            if (btn_pb1.long_press_event)
+            {
+                uint16_t ci;
+                for (ci = 0; ci < NUM_LEDS; ci++)
+                    strip[ci] = CELL_EMPTY;
+                game_state = STATE_IDLE;
+                blink_ms   = Ms_Now();
+                blink_on   = 0;
+                WriteLEDs(0);
+            }
             if (btn_pb2.pressed_event) Fire_Shot(CELL_SHOT_RED);
             if (btn_pb3.pressed_event) Fire_Shot(CELL_SHOT_GREEN);
             if (btn_pb4.pressed_event) Fire_Shot(CELL_SHOT_BLUE);
@@ -495,37 +669,78 @@ int main(void)
 
             if (game_state == STATE_GAME_OVER)
             {
-                blink_ms = Ms_Now();
-                blink_on = 1;
-                LED3_SetHigh();
-                LED4_SetHigh();
-                LED5_SetHigh();
+                anim_count = GAMEOVER_FLASHES;
+                blink_on   = 1;
+                anim_ms    = Ms_Now();
+                LED3_SetHigh(); LED4_SetHigh(); LED5_SetHigh();
+                WriteAllRed(1);
             }
 
-            WriteLEDs(1);
+            if (game_state == STATE_PLAYING)
+                WriteLEDs(1);
         }
 
         /* -----------------------------------------------------------
-         * STATE: GAME OVER
+         * STATE: WIN — rainbow sweep animation
+         * Automatically returns to IDLE when done.
+         * --------------------------------------------------------- */
+        else if (game_state == STATE_WIN)
+        {
+            if (Elapsed(anim_ms) >= RAINBOW_FRAME_MS)
+            {
+                anim_ms = Ms_Now();
+                WriteRainbowFrame(rainbow_offset);
+                rainbow_offset += 8u;   /* advance hue each frame */
+                anim_count--;
+                if (anim_count == 0u)
+                {
+                    /* Clear strip and return to idle */
+                    uint16_t i;
+                    for (i = 0; i < NUM_LEDS; i++)
+                        strip[i] = CELL_EMPTY;
+                    game_state = STATE_IDLE;
+                    blink_ms   = Ms_Now();
+                    blink_on   = 0;
+                    WriteLEDs(0);
+                }
+            }
+        }
+
+        /* -----------------------------------------------------------
+         * STATE: GAME OVER — blink strip red, then return to IDLE
          * --------------------------------------------------------- */
         else if (game_state == STATE_GAME_OVER)
         {
             if (btn_pb1.pressed_event)
             {
-                LED3_SetLow();
-                LED4_SetLow();
-                LED5_SetLow();
-                Game_Init();
+                /* Early exit to idle */
+                LED3_SetLow(); LED4_SetLow(); LED5_SetLow();
+                WriteAllRed(0);
+                game_state = STATE_IDLE;
+                blink_ms   = Ms_Now();
+                blink_on   = 0;
             }
-            else if (Elapsed(blink_ms) >= 300u)
+            else if (Elapsed(anim_ms) >= GAMEOVER_BLINK_MS)
             {
-                blink_ms = Ms_Now();
+                anim_ms  = Ms_Now();
                 blink_on = !blink_on;
+                WriteAllRed(blink_on);
 
-                if (blink_on) { LED3_SetHigh(); LED4_SetHigh(); LED5_SetHigh(); }
-                else          { LED3_SetLow();  LED4_SetLow();  LED5_SetLow();  }
+                if (blink_on)  { LED3_SetHigh(); LED4_SetHigh(); LED5_SetHigh(); }
+                else           { LED3_SetLow();  LED4_SetLow();  LED5_SetLow();  }
 
-                WriteLEDs(blink_on);
+                if (anim_count > 0u)
+                    anim_count--;
+
+                if (anim_count == 0u)
+                {
+                    /* Animation done — back to idle */
+                    LED3_SetLow(); LED4_SetLow(); LED5_SetLow();
+                    game_state = STATE_IDLE;
+                    blink_ms   = Ms_Now();
+                    blink_on   = 0;
+                    WriteLEDs(0);
+                }
             }
         }
     }
