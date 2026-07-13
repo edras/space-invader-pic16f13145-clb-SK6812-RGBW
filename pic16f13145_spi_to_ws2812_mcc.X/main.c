@@ -177,6 +177,11 @@ int main(void)
             if (btn_pb3.pressed_event) Fire_Shot(CELL_SHOT_GREEN);
             if (btn_pb4.pressed_event) Fire_Shot(CELL_SHOT_BLUE);
 
+            /* Light the matching on-board LED while the button is held */
+            if (btn_pb2.stable) LED3_SetHigh(); else LED3_SetLow();
+            if (btn_pb3.stable) LED4_SetHigh(); else LED4_SetLow();
+            if (btn_pb4.stable) LED5_SetHigh(); else LED5_SetLow();
+
             Game_Update();
 
             if (game_state == STATE_GAME_OVER)
