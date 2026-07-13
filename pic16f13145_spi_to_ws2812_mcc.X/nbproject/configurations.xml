@@ -31,6 +31,9 @@
         </logicalFolder>
       </logicalFolder>
       <itemPath>image.h</itemPath>
+      <itemPath>led.h</itemPath>
+      <itemPath>buttons.h</itemPath>
+      <itemPath>game.h</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
@@ -80,6 +83,9 @@
         </logicalFolder>
       </logicalFolder>
       <itemPath>main.c</itemPath>
+      <itemPath>led.c</itemPath>
+      <itemPath>buttons.c</itemPath>
+      <itemPath>game.c</itemPath>
     </logicalFolder>
   </logicalFolder>
   <sourceRootList>
