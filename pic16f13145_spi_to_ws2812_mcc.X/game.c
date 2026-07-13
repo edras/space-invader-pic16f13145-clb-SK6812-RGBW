@@ -51,13 +51,36 @@ static uint16_t Elapsed(uint16_t since)
 }
 
 /* -------------------------------------------------------------------------
- * Rng_NextColor — LCG pseudo-random number generator.
- * Returns 1 (RED), 2 (GREEN), or 3 (BLUE) with roughly equal probability.
+ * Rng_NextInvader — returns a fresh random invader cell for the current mode.
+ *
+ * Easy modes: one of RED / GREEN / BLUE (one shot to kill).
+ * Hard modes: one of CYAN / MAGENTA / YELLOW / WHITE (2-3 shots to kill).
  * ---------------------------------------------------------------------- */
-static uint8_t Rng_NextColor(void)
+static uint8_t Rng_NextInvader(void)
 {
     rng_state = rng_state * 25173u + 13849u;
-    return (uint8_t)((rng_state >> 8u) % 3u) + 1u;
+    if (MODE_IS_HARD(game_mode))
+    {
+        switch ((rng_state >> 8u) % 7u)
+        {
+            case 0u: return CELL_INV_RED;
+            case 1u: return CELL_INV_GREEN;
+            case 2u: return CELL_INV_BLUE;
+            case 3u: return CELL_INV_CYAN;
+            case 4u: return CELL_INV_MAGENTA;
+            case 5u: return CELL_INV_YELLOW;
+            default: return CELL_INV_WHITE;
+        }
+    }
+    else
+    {
+        switch ((rng_state >> 8u) % 3u)
+        {
+            case 0u: return CELL_INV_RED;
+            case 1u: return CELL_INV_GREEN;
+            default: return CELL_INV_BLUE;
+        }
+    }
 }
 
 /* -------------------------------------------------------------------------
@@ -72,7 +95,7 @@ void Game_Init(void)
         strip[i] = CELL_EMPTY;
 
     for (i = INVADER_START_POS; i < NUM_LEDS; i++)
-        strip[i] = Rng_NextColor();
+        strip[i] = Rng_NextInvader();
 
     invader_head    = INVADER_START_POS;
     game_tick_ms    = GAME_TICK_INIT_MS;
@@ -112,13 +135,12 @@ static uint8_t All_Invaders_Gone(void)
 
 /* -------------------------------------------------------------------------
  * Shot_Miss — penalty for a missed shot (overshot or wrong colour).
- * Adds a new invader at the tail if there is a free cell there, and
- * speeds up the invader tick by one step (both modes).
+ * Adds a new invader at the tail if space is available, and speeds up.
  * ---------------------------------------------------------------------- */
 static void Shot_Miss(void)
 {
     if (strip[NUM_LEDS - 1u] == CELL_EMPTY)
-        strip[NUM_LEDS - 1u] = Rng_NextColor();
+        strip[NUM_LEDS - 1u] = Rng_NextInvader();
 
     if (game_tick_ms > GAME_TICK_MIN_MS + SPEED_UP_STEP_MS)
         game_tick_ms -= SPEED_UP_STEP_MS;
@@ -127,23 +149,104 @@ static void Shot_Miss(void)
 }
 
 /* -------------------------------------------------------------------------
+ * Invader_Destroy — remove invader at index pos from the strip.
+ * Classic modes: compact the group (shift everything down, clear tail).
+ * Endless modes: clear in place; Invaders_Advance will refill the tail.
+ * ---------------------------------------------------------------------- */
+static void Invader_Destroy(uint16_t pos)
+{
+    if (!MODE_IS_ENDLESS(game_mode))
+    {
+        uint16_t j;
+        for (j = pos; j < NUM_LEDS - 1u; j++)
+            strip[j] = strip[j + 1u];
+        strip[NUM_LEDS - 1u] = CELL_EMPTY;
+    }
+    else
+    {
+        strip[pos] = CELL_EMPTY;
+    }
+}
+
+/* -------------------------------------------------------------------------
+ * Shot_Hit_Invader — apply one shot to an invader cell.
+ *
+ * Easy mode: any colour match destroys immediately.
+ * Hard mode: the shot clears its corresponding bit from the invader's
+ *            remaining-shots mask.  When the mask reaches 0 the invader
+ *            is destroyed.  The display colour updates to reflect what
+ *            shots are still needed:
+ *              R only left  → RED
+ *              G only left  → GREEN
+ *              B only left  → BLUE
+ *              R+G left     → YELLOW
+ *              R+B left     → MAGENTA
+ *              G+B left     → CYAN
+ *              R+G+B left   → WHITE  (shouldn't happen post-first-hit)
+ *
+ * Returns 1 if the invader was destroyed, 0 if it survived.
+ * inv_pos: index of the invader cell in strip[].
+ * shot_col: CELL_SHOT_COLOR() of the incoming shot (1=R, 2=G, 3=B).
+ * ---------------------------------------------------------------------- */
+static uint8_t Shot_Hit_Invader(uint16_t inv_pos, uint8_t shot_col)
+{
+    uint8_t inv  = strip[inv_pos];
+    uint8_t mask = CELL_INV_MASK(inv);
+    uint8_t need_bit;
+
+    /* Map shot colour to need bit */
+    if      (shot_col == 1u) need_bit = INV_NEED_R;
+    else if (shot_col == 2u) need_bit = INV_NEED_G;
+    else                     need_bit = INV_NEED_B;
+
+    /* Miss: this colour is not needed (wrong shot for this invader) */
+    if (!(mask & need_bit))
+        return 0u;   /* caller should apply miss penalty */
+
+    /* Clear the bit */
+    mask &= (uint8_t)(~need_bit);
+
+    if (mask == 0u)
+    {
+        /* All required shots delivered — destroy the invader */
+        Invader_Destroy(inv_pos);
+        return 1u;
+    }
+
+    /* Update the cell with the new mask and recalculate display colour */
+    {
+        uint8_t new_col;
+        switch (mask)
+        {
+            case INV_NEED_R:                       new_col = INV_COL_RED;     break;
+            case INV_NEED_G:                       new_col = INV_COL_GREEN;   break;
+            case INV_NEED_B:                       new_col = INV_COL_BLUE;    break;
+            case INV_NEED_R | INV_NEED_G:          new_col = INV_COL_YELLOW;  break;
+            case INV_NEED_R | INV_NEED_B:          new_col = INV_COL_MAGENTA; break;
+            case INV_NEED_G | INV_NEED_B:          new_col = INV_COL_CYAN;    break;
+            default:                               new_col = INV_COL_WHITE;   break;
+        }
+        strip[inv_pos] = MAKE_INV(new_col, mask);
+    }
+    return 0u;   /* survived but damaged */
+}
+
+/* -------------------------------------------------------------------------
  * Shots_Run — advance every in-flight shot one step toward the invaders.
  *
- * Walk the strip from high index to low so each shot moves at most one
- * position per call (prevents a shot from skipping over multiple cells).
+ * Walk from high index to low so each shot moves at most one step per call.
  *
  * Outcomes:
- *   Shot reaches NUM_LEDS-1 (overshot)  : miss penalty, shot consumed.
- *   Colour match, Classic mode          : invader destroyed, group compacted.
- *   Colour match, Endless mode          : invader cleared in place.
- *   Colour mismatch                     : miss penalty, shot consumed.
+ *   Overshot (reached NUM_LEDS-1)  : miss penalty, shot consumed.
+ *   Shot colour matches invader need: apply hit; destroy if mask = 0.
+ *   Shot colour not in invader mask : miss penalty, shot consumed.
  * ---------------------------------------------------------------------- */
 static void Shots_Run(void)
 {
     uint16_t i;
     uint8_t  cell, next;
 
-    /* Clear any shot that reached the last cell (overshot all invaders) */
+    /* Clear any shot that overshot all invaders */
     if (CELL_IS_SHOT(strip[NUM_LEDS - 1u]))
     {
         strip[NUM_LEDS - 1u] = CELL_EMPTY;
@@ -159,36 +262,17 @@ static void Shots_Run(void)
 
             if (next == CELL_EMPTY)
             {
-                /* Empty cell ahead — move the shot forward */
                 strip[i + 1u] = cell;
                 strip[i]      = CELL_EMPTY;
             }
             else if (CELL_IS_INV(next))
             {
-                if (CELL_COLOR(next) == CELL_COLOR(cell))
-                {
-                    /* Colour match — destroy the invader */
-                    if (game_mode == MODE_CLASSIC)
-                    {
-                        uint16_t j;
-                        for (j = i + 1u; j < NUM_LEDS - 1u; j++)
-                            strip[j] = strip[j + 1u];
-                        strip[NUM_LEDS - 1u] = CELL_EMPTY;
-                    }
-                    else
-                    {
-                        /* Endless: clear in place; Invaders_Advance refills */
-                        strip[i + 1u] = CELL_EMPTY;
-                    }
-                }
-                else
-                {
-                    /* Wrong colour — miss penalty */
-                    Shot_Miss();
-                }
-                strip[i] = CELL_EMPTY;  /* shot consumed either way */
+                uint8_t destroyed = Shot_Hit_Invader(i + 1u, CELL_SHOT_COLOR(cell));
+                if (!destroyed)
+                    Shot_Miss();   /* wrong colour or partial hit with no match */
+                strip[i] = CELL_EMPTY;   /* shot always consumed on contact */
             }
-            /* else: next cell is another shot — leave both in place */
+            /* else: adjacent shot — leave both in place */
         }
 
         if (i == 0u) break;
@@ -223,12 +307,17 @@ static void Invaders_Advance(void)
 
         if (CELL_IS_SHOT(dst))
         {
-            /* Shot waiting in the destination — resolve collision now */
+            /* Shot waiting in the destination — resolve collision now.
+             * Use Shot_Hit_Invader so hard-mode multi-hit logic applies. */
+            uint8_t destroyed = Shot_Hit_Invader(i, CELL_SHOT_COLOR(dst));
+            strip[i - 1u] = CELL_EMPTY;   /* shot consumed */
+            if (!destroyed)
+            {
+                /* Invader survived the hit — move it into the (now empty) dst */
+                strip[i - 1u] = strip[i];
+                Shot_Miss();
+            }
             strip[i] = CELL_EMPTY;
-            if (CELL_COLOR(dst) == CELL_COLOR(inv))
-                strip[i - 1u] = CELL_EMPTY;  /* colour match: both gone   */
-            else
-                strip[i - 1u] = inv;          /* mismatch: invader moves through */
         }
         else
         {
@@ -238,8 +327,8 @@ static void Invaders_Advance(void)
         }
     }
 
-    strip[NUM_LEDS - 1u] = (game_mode == MODE_ENDLESS)
-                           ? Rng_NextColor()
+    strip[NUM_LEDS - 1u] = MODE_IS_ENDLESS(game_mode)
+                           ? Rng_NextInvader()
                            : CELL_EMPTY;
 
     if (invader_head > 0u)
@@ -301,8 +390,8 @@ void Game_Update(void)
         last_shot_ms += SHOT_STEP_MS;
         Shots_Run();
 
-        /* Win check: only in Classic mode, checked after shots resolve */
-        if (game_mode == MODE_CLASSIC && All_Invaders_Gone())
+        /* Win check: only in Classic modes, checked after shots resolve */
+        if (!MODE_IS_ENDLESS(game_mode) && All_Invaders_Gone())
         {
             game_state = STATE_WIN;   /* Rainbow_Init() called by main.c */
             return;

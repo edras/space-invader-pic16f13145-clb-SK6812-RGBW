@@ -14,11 +14,11 @@
  * State machine:
  *
  *   IDLE ──(short press PB1)──► PLAYING
- *   IDLE ──(long  press PB1)──► IDLE  (mode toggled: Classic ↔ Endless)
+ *   IDLE ──(long  press PB1)──► IDLE  (mode cycled: Classic→Endless→Classic Hard→Endless Hard→…)
  *
- *   PLAYING ──(all invaders gone, Classic)──► WIN
- *   PLAYING ──(invader reaches index 0)─────► GAME_OVER
- *   PLAYING ──(long  press PB1)─────────────► IDLE  (abort)
+ *   PLAYING ──(all invaders gone, Classic modes)──► WIN
+ *   PLAYING ──(invader reaches index 0)────────────► GAME_OVER
+ *   PLAYING ──(long  press PB1)────────────────────► IDLE  (abort)
  *
  *   WIN      ──(animation ends)──► IDLE
  *   GAME_OVER──(animation ends)──► IDLE
@@ -35,10 +35,14 @@
 volatile uint16_t ms_tick;
 
 /* -------------------------------------------------------------------------
- * Idle blink state
+ * Idle blink periods (half-period in ms — LED is on for this long, then off)
+ * Easy modes : slow white blink
+ * Hard modes : fast red blink
  * ---------------------------------------------------------------------- */
-#define BLINK_CLASSIC_MS  500u   /* half-period for Classic mode (1 s total) */
-#define BLINK_ENDLESS_MS   75u   /* half-period for Endless mode (150 ms)    */
+#define BLINK_CLASSIC_MS       500u
+#define BLINK_ENDLESS_MS        75u
+#define BLINK_CLASSIC_HARD_MS  500u
+#define BLINK_ENDLESS_HARD_MS   75u
 
 static uint16_t blink_ms;
 static uint8_t  blink_on;
@@ -69,6 +73,8 @@ void Timer_1ms_Callback(void)
 int main(void)
 {
     uint16_t i;
+    uint16_t blink_period;
+    uint8_t  is_hard;
 
     /* --- Hardware init ------------------------------------------------- */
     SYSTEM_Initialize();
@@ -94,7 +100,7 @@ int main(void)
     blink_ms   = 0;
     blink_on   = 0;
 
-    WriteLEDs(0, 0);
+    WriteLEDs(0, 0, 0);
 
     /* ===================================================================
      * Main loop
@@ -106,11 +112,13 @@ int main(void)
         Debounce_Update(&btn_pb3, (uint8_t)PB3_GetValue());
         Debounce_Update(&btn_pb4, (uint8_t)PB4_GetValue());
 
+        is_hard = (uint8_t)MODE_IS_HARD(game_mode);
+
         /* -----------------------------------------------------------------
          * STATE: IDLE
-         *   Short press PB1 → start the game.
-         *   Long  press PB1 → toggle Classic / Endless mode.
-         *   Otherwise       → blink LED 0 at the mode-specific rate.
+         *   Short press PB1 → start the game in current mode.
+         *   Long  press PB1 → cycle to next mode.
+         *   Otherwise       → blink LED 0 (white = easy, red = hard).
          * --------------------------------------------------------------- */
         if (game_state == STATE_IDLE)
         {
@@ -120,21 +128,33 @@ int main(void)
             }
             else if (btn_pb1.long_press_event)
             {
-                game_mode = (game_mode == MODE_CLASSIC)
-                            ? MODE_ENDLESS : MODE_CLASSIC;
-                blink_ms  = ms_tick;
-                blink_on  = 1;
-                WriteLEDs(0, blink_on);
+                /* Cycle: Classic → Endless → Classic Hard → Endless Hard → Classic … */
+                switch (game_mode)
+                {
+                    case MODE_CLASSIC:      game_mode = MODE_ENDLESS;       break;
+                    case MODE_ENDLESS:      game_mode = MODE_CLASSIC_HARD;  break;
+                    case MODE_CLASSIC_HARD: game_mode = MODE_ENDLESS_HARD;  break;
+                    default:                game_mode = MODE_CLASSIC;        break;
+                }
+                is_hard  = (uint8_t)MODE_IS_HARD(game_mode);
+                blink_ms = ms_tick;
+                blink_on = 1;
+                WriteLEDs(0, blink_on, is_hard);
             }
             else
             {
-                uint16_t period = (game_mode == MODE_CLASSIC)
-                                  ? BLINK_CLASSIC_MS : BLINK_ENDLESS_MS;
-                if ((uint16_t)(ms_tick - blink_ms) >= period)
+                switch (game_mode)
+                {
+                    case MODE_ENDLESS:      blink_period = BLINK_ENDLESS_MS;      break;
+                    case MODE_CLASSIC_HARD: blink_period = BLINK_CLASSIC_HARD_MS; break;
+                    case MODE_ENDLESS_HARD: blink_period = BLINK_ENDLESS_HARD_MS; break;
+                    default:                blink_period = BLINK_CLASSIC_MS;       break;
+                }
+                if ((uint16_t)(ms_tick - blink_ms) >= blink_period)
                 {
                     blink_ms = ms_tick;
                     blink_on = !blink_on;
-                    WriteLEDs(0, blink_on);
+                    WriteLEDs(0, blink_on, is_hard);
                 }
             }
         }
@@ -144,8 +164,6 @@ int main(void)
          *   PB2/PB3/PB4  → fire red/green/blue shot; light matching LED.
          *   Long press PB1 → abort and return to IDLE.
          *   Game_Update()  → advance shots and invaders.
-         *   On transition to WIN      → Rainbow_Init().
-         *   On transition to GAME_OVER→ Gameover_Init().
          * --------------------------------------------------------------- */
         else if (game_state == STATE_PLAYING)
         {
@@ -156,7 +174,7 @@ int main(void)
                 game_state = STATE_IDLE;
                 blink_ms   = ms_tick;
                 blink_on   = 0;
-                WriteLEDs(0, 0);
+                WriteLEDs(0, 0, is_hard);
             }
 
             if (btn_pb2.pressed_event) Fire_Shot(CELL_SHOT_RED);
@@ -169,9 +187,9 @@ int main(void)
 
             Game_Update();
 
-            if      (game_state == STATE_WIN)       Rainbow_Init();
+            if      (game_state == STATE_WIN)        Rainbow_Init();
             else if (game_state == STATE_GAME_OVER)  Gameover_Init();
-            else                                     WriteLEDs(1, 0);
+            else                                     WriteLEDs(1, 0, 0);
         }
 
         /* -----------------------------------------------------------------
@@ -185,7 +203,7 @@ int main(void)
             {
                 blink_ms = ms_tick;
                 blink_on = 0;
-                WriteLEDs(0, 0);
+                WriteLEDs(0, 0, is_hard);
             }
         }
 
@@ -200,7 +218,7 @@ int main(void)
             {
                 blink_ms = ms_tick;
                 blink_on = 0;
-                WriteLEDs(0, 0);
+                WriteLEDs(0, 0, is_hard);
             }
         }
     }

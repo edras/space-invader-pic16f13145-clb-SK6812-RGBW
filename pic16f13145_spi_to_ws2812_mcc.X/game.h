@@ -15,6 +15,9 @@
  *
  *   STATE_WIN      ──(animation done)──► STATE_IDLE
  *   STATE_GAME_OVER──(animation done)──► STATE_IDLE
+ *
+ * Modes cycled by long press PB1 in IDLE:
+ *   CLASSIC → ENDLESS → CLASSIC_HARD → ENDLESS_HARD → CLASSIC …
  */
 
 #ifndef GAME_H
@@ -33,9 +36,15 @@ typedef enum {
 } game_state_t;
 
 typedef enum {
-    MODE_CLASSIC = 0,   /* destroy all 20 invaders to win */
-    MODE_ENDLESS  = 1   /* new invader added every step; survive as long as possible */
+    MODE_CLASSIC      = 0,  /* RGB invaders, destroy all 20 to win          */
+    MODE_ENDLESS      = 1,  /* RGB invaders, new one every step              */
+    MODE_CLASSIC_HARD = 2,  /* CMYW invaders (multi-hit), destroy all to win */
+    MODE_ENDLESS_HARD = 3   /* CMYW invaders, new one every step             */
 } game_mode_t;
+
+/* Convenience predicates */
+#define MODE_IS_HARD(m)    ((m) >= MODE_CLASSIC_HARD)
+#define MODE_IS_ENDLESS(m) ((m) == MODE_ENDLESS || (m) == MODE_ENDLESS_HARD)
 
 /* -------------------------------------------------------------------------
  * Game constants — timings and speed schedule
