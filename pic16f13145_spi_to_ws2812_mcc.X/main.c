@@ -89,7 +89,7 @@
 #define GAME_TICK_MIN_MS    100u
 #define SPEED_UP_EVERY      10u
 #define SPEED_UP_STEP_MS    30u
-#define SHOT_STEP_MS        50u
+#define SHOT_STEP_MS        25u
 #define RENDER_MS           16u
 
 /* Idle blink periods */
@@ -104,8 +104,8 @@
 #define GAMEOVER_BLINK_MS   200u
 
 /* Rainbow: number of frames to show and frame period */
-#define RAINBOW_FRAMES      60u
-#define RAINBOW_FRAME_MS    50u
+#define RAINBOW_FRAMES      90u
+#define RAINBOW_FRAME_MS    33u
 
 /* -------------------------------------------------------------------------
  * Game / UI states
@@ -171,7 +171,7 @@ static button_t btn_pb1, btn_pb2, btn_pb3, btn_pb4;
 static void    Game_Init(void);
 static void    Game_Update(void);
 static void    WriteLEDs(uint8_t blink_invaders);
-static void    WriteRainbowFrame(uint8_t offset);
+
 static void    WriteAllRed(uint8_t on);
 static void    Debounce_Update(button_t *b, uint8_t raw);
 static uint8_t Rng_NextColor(void);
@@ -267,32 +267,6 @@ static void SPI_SendByte(uint8_t byte)
 }
 
 /* -------------------------------------------------------------------------
- * Simple hue-to-GRB for rainbow (3-segment, brightness capped at ~35%).
- * hue: 0-255 wrapping.  Returns g, r, b via pointers.
- *
- * Hue segments (each 85 units wide):
- *   0 -  84  : R→G  (red fades out, green fades in)
- *  85 - 169  : G→B  (green fades out, blue fades in)
- * 170 - 254  : B→R  (blue fades out, red fades in)
- * ---------------------------------------------------------------------- */
-static void Hue_To_GRB(uint8_t hue, uint8_t *g, uint8_t *r, uint8_t *b)
-{
-    uint8_t seg = (uint8_t)(hue / 85u);
-    uint8_t pos = (uint8_t)(hue % 85u);
-    uint8_t hi  = BRIGHT(0xFF);
-    uint8_t lo  = (uint8_t)(((uint16_t)hi * pos) / 85u);
-    uint8_t hi2 = (uint8_t)(hi - lo);
-
-    *g = 0; *r = 0; *b = 0;
-    switch (seg)
-    {
-        case 0u: *r = hi2; *g = lo;  break;  /* R→G */
-        case 1u: *g = hi2; *b = lo;  break;  /* G→B */
-        default: *b = hi2; *r = lo;  break;  /* B→R */
-    }
-}
-
-/* -------------------------------------------------------------------------
  * Render current strip[] state to LEDs.
  * blink_invaders: 1 = show invaders (PLAYING or win blink-on),
  *                 0 = invaders dark (idle / blink-off).
@@ -330,39 +304,6 @@ static void WriteLEDs(uint8_t blink_invaders)
             }
         }
 
-        SPI_SendByte(g);
-        SPI_SendByte(r);
-        SPI_SendByte(b);
-        SPI_SendByte(0);
-    }
-
-    SPI1_Close();
-    __delay_us(100);
-    ms_tick += RENDER_MS;
-    INTERRUPT_GlobalInterruptEnable();
-}
-
-/* -------------------------------------------------------------------------
- * Render a rainbow frame directly to the strip (bypasses strip[] array).
- * offset: starting hue, advances each call to animate the sweep.
- * ---------------------------------------------------------------------- */
-static void WriteRainbowFrame(uint8_t offset)
-{
-    uint16_t i;
-    uint8_t  g, r, b;
-
-    INTERRUPT_GlobalInterruptDisable();
-    SPI1_Open(MSSP1_DEFAULT);
-    PIR5bits.SSP1IF = 0U;
-
-    for (i = 0; i < NUM_LEDS; i++)
-    {
-        /* Spread hue 0-254 evenly across the strip, shifted by offset.
-         * i * 255 / 300 overflows uint16_t for i > 257, so use the
-         * equivalent i * 85 / 100 which stays within 16-bit range
-         * (max 299 * 85 = 25415). */
-        uint8_t hue = (uint8_t)((uint16_t)(i * 85u / 100u) + offset);
-        Hue_To_GRB(hue, &g, &r, &b);
         SPI_SendByte(g);
         SPI_SendByte(r);
         SPI_SendByte(b);
@@ -476,11 +417,21 @@ static void Shots_Run(void)
             {
                 if (CELL_COLOR(next) == CELL_COLOR(cell))
                 {
-                    /* Colour match: destroy invader, compact group */
-                    uint16_t j;
-                    for (j = i + 1u; j < NUM_LEDS - 1u; j++)
-                        strip[j] = strip[j + 1u];
-                    strip[NUM_LEDS - 1u] = CELL_EMPTY;
+                    if (game_mode == MODE_CLASSIC)
+                    {
+                        /* Classic: compact the group so it shrinks */
+                        uint16_t j;
+                        for (j = i + 1u; j < NUM_LEDS - 1u; j++)
+                            strip[j] = strip[j + 1u];
+                        strip[NUM_LEDS - 1u] = CELL_EMPTY;
+                    }
+                    else
+                    {
+                        /* Endless: just clear the invader in place —
+                         * the gap will be filled by the next
+                         * Invaders_Advance append at NUM_LEDS-1 */
+                        strip[i + 1u] = CELL_EMPTY;
+                    }
                 }
                 strip[i] = CELL_EMPTY;  /* shot consumed either way */
             }
@@ -495,10 +446,18 @@ static void Shots_Run(void)
  * Invader advance: shift group one step toward the player.
  * In MODE_ENDLESS a new random invader is appended at the tail so the
  * group never shrinks — only growing and advancing.
+ *
+ * Collision during advance: before moving each invader one step left,
+ * check whether the destination cell holds a shot.  If it does, resolve
+ * the collision in place so that faster invader speeds cannot bypass the
+ * detection in Shots_Run().
+ *   - Colour match  : invader destroyed, shot consumed, cell stays empty.
+ *   - Colour mismatch: shot consumed, invader moves through normally.
  * ---------------------------------------------------------------------- */
 static void Invaders_Advance(void)
 {
     uint16_t i;
+    uint8_t  inv, dst;
 
     if (invader_head == 0u)
     {
@@ -506,8 +465,29 @@ static void Invaders_Advance(void)
         return;
     }
 
+    /* Shift every invader one step toward the player */
     for (i = invader_head; i < NUM_LEDS; i++)
-        strip[i - 1u] = strip[i];
+    {
+        inv = strip[i];
+        if (!CELL_IS_INV(inv))
+            continue;
+
+        dst = strip[i - 1u];
+
+        if (CELL_IS_SHOT(dst))
+        {
+            strip[i] = CELL_EMPTY;
+            if (CELL_COLOR(dst) == CELL_COLOR(inv))
+                strip[i - 1u] = CELL_EMPTY;   /* match: both gone */
+            else
+                strip[i - 1u] = inv;           /* mismatch: invader moves through */
+        }
+        else
+        {
+            strip[i - 1u] = inv;
+            strip[i]      = CELL_EMPTY;
+        }
+    }
 
     strip[NUM_LEDS - 1u] = (game_mode == MODE_ENDLESS)
                            ? Rng_NextColor()
@@ -533,9 +513,14 @@ static void Game_Update(void)
         /* Win check: only in classic mode, after shots run */
         if (game_mode == MODE_CLASSIC && All_Invaders_Gone())
         {
+            uint16_t wi;
+            /* Pre-fill strip with repeating R/G/B pattern so the wave
+             * is already visible on the first rendered frame */
+            for (wi = 0u; wi < NUM_LEDS; wi++)
+                strip[wi] = (uint8_t)((wi % 3u) + 1u);  /* 1,2,3,1,2,3,… */
             game_state     = STATE_WIN;
             anim_count     = RAINBOW_FRAMES;
-            rainbow_offset = 0;
+            rainbow_offset = 1u;   /* next colour fed into index 0 */
             anim_ms        = Ms_Now();
             return;
         }
@@ -681,21 +666,32 @@ int main(void)
         }
 
         /* -----------------------------------------------------------
-         * STATE: WIN — rainbow sweep animation
-         * Automatically returns to IDLE when done.
+         * STATE: WIN — rainbow wave animation.
+         * Each tick: shift all cells one step toward index 299, then
+         * feed the next colour in the R→G→B cycle into index 0.
+         * WriteLEDs(1) renders strip[] exactly as during gameplay.
          * --------------------------------------------------------- */
         else if (game_state == STATE_WIN)
         {
             if (Elapsed(anim_ms) >= RAINBOW_FRAME_MS)
             {
+                uint16_t i;
                 anim_ms = Ms_Now();
-                WriteRainbowFrame(rainbow_offset);
-                rainbow_offset += 8u;   /* advance hue each frame */
+
+                /* Shift strip toward the far end */
+                for (i = NUM_LEDS - 1u; i > 0u; i--)
+                    strip[i] = strip[i - 1u];
+
+                /* Feed next colour into index 0 (cycles R→G→B→R…) */
+                rainbow_offset++;
+                if (rainbow_offset > 3u) rainbow_offset = 1u;
+                strip[0] = rainbow_offset;
+
+                WriteLEDs(1);
+
                 anim_count--;
                 if (anim_count == 0u)
                 {
-                    /* Clear strip and return to idle */
-                    uint16_t i;
                     for (i = 0; i < NUM_LEDS; i++)
                         strip[i] = CELL_EMPTY;
                     game_state = STATE_IDLE;
