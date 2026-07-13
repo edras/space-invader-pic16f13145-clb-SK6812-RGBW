@@ -35,8 +35,6 @@ A fully playable 1D Space Invaders game running on a 300-LED SK6812 RGBW strip, 
 - SK6812 RGBW LED Strip (300 LEDs):
   <br><img src="images/SK6812_RGBW.png" width="600">
 
-- Four push buttons connected to PB1–PB4 (game controls)
-
 > The project also runs on the [PIC16F13145 Curiosity Nano](https://www.microchip.com/en-us/development-tool/EV06M52A) with minor pin-mapping changes.
 
 ## Operation
@@ -51,7 +49,10 @@ To program the veryVerilog board, follow the steps in [How to Program the veryVe
 
 Space Invaders 1D maps the classic arcade game onto a single row of 300 LEDs. The player stands at index 0 (one end of the strip) and a group of coloured invaders marches toward them from the far end. Fire coloured shots to destroy the invaders before they reach you.
 
-<br><img src="images/demo.gif" width="1000">
+<br><img src="images/demo2.jpg" width="1000">
+<br><video width="640" height="320" controls>
+  <source src="images/demo.mp4" type="video/mp4">
+</video>
 
 **Note:** LED brightness is capped at ~35% of maximum to stay within USB power limits.
 
@@ -122,11 +123,7 @@ The CLB peripheral hardware-converts the MSSP1 SPI bitstream into WS2812-compati
 
 <br><img src="images/mcc_clb_circuit.png" width="800">
 
-The Serial Data Out (SDO) and Serial Clock (SCK) signals are inputs to two off-sheet demux circuits. The first bit of the CLBSWIN register — `CLBSWIN[0]` — selects whether SPI signals pass through directly (for debugging) or are routed into the `SPI_to_WS2812` conversion circuit.
-
-<br><img src="images/mcc_clb_demux_1x2.png" width="800">
-
-When `CLBSWIN0` is set, the `SPI_to_WS2812` circuit (shown below) generates the correct WS2812 timing from the SPI stream using a D Latch, a 3-bit counter, and a 4-bit LUT with output value `0x7E0E`.
+The Serial Data Out (SDO) and Serial Clock (SCK) signals are inputs to the `SPI_to_WS2812` block. The `SPI_to_WS2812` circuit (shown below) generates the correct WS2812 timing from the SPI stream using a D Latch, a 3-bit counter, and a 4-bit LUT with output value `0x7E0E`.
 
 <br><img src="images/mcc_clb_spi_to_ws2812.png" width="800">
 

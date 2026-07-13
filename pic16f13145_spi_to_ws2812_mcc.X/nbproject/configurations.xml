@@ -30,7 +30,6 @@
           <itemPath>mcc_generated_files/timer/tmr0.h</itemPath>
         </logicalFolder>
       </logicalFolder>
-      <itemPath>image.h</itemPath>
       <itemPath>buttons.h</itemPath>
       <itemPath>game.h</itemPath>
       <itemPath>led.h</itemPath>
