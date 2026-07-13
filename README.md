@@ -49,6 +49,8 @@ To program the veryVerilog board, follow the steps in [How to Program the veryVe
 
 Space Invaders 1D maps the classic arcade game onto a single row of 300 LEDs. The player stands at index 0 (one end of the strip) and a group of coloured invaders marches toward them from the far end. Fire coloured shots to destroy the invaders before they reach you.
 
+<br><img src="images/wiring_manual.png" width="1000">
+
 <br><img src="images/demo2.jpg" width="1000">
 <br><video width="640" height="320" controls>
   <source src="images/demo.mp4" type="video/mp4">
