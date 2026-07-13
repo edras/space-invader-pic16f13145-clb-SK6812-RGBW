@@ -25,6 +25,9 @@
  * ---------------------------------------------------------------------- */
 uint8_t strip[NUM_LEDS];
 
+/* ms_tick is owned by main.c */
+extern volatile uint16_t ms_tick;
+
 /* How long one full SPI frame takes (used to compensate ms_tick) */
 #define RENDER_MS  16u
 

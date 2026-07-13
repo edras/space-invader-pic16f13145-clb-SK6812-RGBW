@@ -2,7 +2,7 @@
 
 manifest_file_version: 1.0.0
 project: pic16f13145_spi_to_ws2812_mcc
-creation_date: 2026-07-09T15:52:11.253+02:00[Europe/Berlin]
+creation_date: 2026-07-13T14:06:44.128+02:00[Europe/Berlin]
 operating_system: Windows 11
 mcc_mode: IDE
 mcc_mode_version: v6.30

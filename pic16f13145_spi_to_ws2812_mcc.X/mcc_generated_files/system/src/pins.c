@@ -88,7 +88,7 @@ void PIN_MANAGER_Initialize(void)
     /**
     PPS registers
     */
-    RA0PPS = 0x2B;  //RA0->CLB1:CLBPPSOUT7;
+    RA0PPS = 0x24;  //RA0->CLB1:CLBPPSOUT0;
 
     /**
     APFCON registers

@@ -31,9 +31,9 @@
         </logicalFolder>
       </logicalFolder>
       <itemPath>image.h</itemPath>
-      <itemPath>led.h</itemPath>
       <itemPath>buttons.h</itemPath>
       <itemPath>game.h</itemPath>
+      <itemPath>led.h</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
@@ -83,9 +83,9 @@
         </logicalFolder>
       </logicalFolder>
       <itemPath>main.c</itemPath>
-      <itemPath>led.c</itemPath>
       <itemPath>buttons.c</itemPath>
       <itemPath>game.c</itemPath>
+      <itemPath>led.c</itemPath>
     </logicalFolder>
   </logicalFolder>
   <sourceRootList>
@@ -244,6 +244,9 @@
                   value="ToolFirmwareOption.UseLatest"/>
         <property key="ToolFirmwareToolPack"
                   value="Press to select which tool pack to use"/>
+        <property key="W0106_SIM_PERIPH_PARTIAL_SUPPORT" value="report"/>
+        <property key="W0237_ADC_UNKNOWN_DATASHEET" value="report"/>
+        <property key="W1601_PPS_INVALID_PIN_DESCRIPTION" value="report"/>
         <property key="communication.activationmode" value="nohv"/>
         <property key="communication.interface"
                   value="${communication.interface.default}"/>
@@ -276,6 +279,7 @@
                   value="${memories.instruction.ram.ranges}"/>
         <property key="memories.programmemory" value="true"/>
         <property key="memories.programmemory.ranges" value="0-1fff"/>
+        <property key="periphADC1.minTacq" value="4"/>
         <property key="poweroptions.powerenable" value="true"/>
         <property key="programmerToGoFilePath"
                   value="C:/Users/m66790/OneDrive - Microchip Technology Inc/Documents/pic16f131/spi-test-1.X/debug/default/spi-test-1_ptg"/>
