@@ -20,8 +20,8 @@
  *   PLAYING ──(invader reaches index 0)─────► GAME_OVER
  *   PLAYING ──(long  press PB1)─────────────► IDLE  (abort)
  *
- *   WIN      ──(animation ends / PB1 skip)──► IDLE
- *   GAME_OVER──(animation ends / PB1 skip)──► IDLE
+ *   WIN      ──(animation ends)──► IDLE
+ *   GAME_OVER──(animation ends)──► IDLE
  */
 
 #include "mcc_generated_files/system/system.h"
@@ -30,9 +30,7 @@
 #include "game.h"
 
 /* -------------------------------------------------------------------------
- * Software millisecond timer.
- * Incremented by Timer_1ms_Callback() every 1 ms.
- * Declared volatile because the ISR writes it and the main loop reads it.
+ * Software millisecond timer — incremented every 1 ms by the ISR.
  * ---------------------------------------------------------------------- */
 volatile uint16_t ms_tick;
 
@@ -46,27 +44,19 @@ static uint16_t blink_ms;
 static uint8_t  blink_on;
 
 /* -------------------------------------------------------------------------
- * Four buttons — each gets its own button_t instance
+ * Four buttons
  * ---------------------------------------------------------------------- */
 static button_t btn_pb1, btn_pb2, btn_pb3, btn_pb4;
 
-/* -------------------------------------------------------------------------
- * Button_Init — zero-initialise a button_t (all fields to 0 = released)
- * ---------------------------------------------------------------------- */
 static void Button_Init(button_t *b)
 {
-    b->last_raw         = 0;
-    b->stable           = 0;
-    b->change_ms        = 0;
-    b->press_ms         = 0;
-    b->long_fired       = 0;
-    b->pressed_event    = 0;
-    b->long_press_event = 0;
+    b->last_raw = 0; b->stable = 0; b->change_ms = 0;
+    b->press_ms = 0; b->long_fired = 0;
+    b->pressed_event = 0; b->long_press_event = 0;
 }
 
 /* -------------------------------------------------------------------------
- * Timer_1ms_Callback — called by the TMR0 ISR every 1 ms.
- * Keeps ms_tick as the global time reference for everything in the project.
+ * Timer_1ms_Callback — TMR0 ISR, called every 1 ms
  * ---------------------------------------------------------------------- */
 void Timer_1ms_Callback(void)
 {
@@ -86,8 +76,6 @@ int main(void)
     Timer0_Start();
     INTERRUPT_GlobalInterruptEnable();
     INTERRUPT_PeripheralInterruptEnable();
-
-    /* Enable the CLB output that drives the LED strip */
     CLBSWINLbits.CLBSWIN0 = 1;
     __delay_ms(1);
 
@@ -105,8 +93,6 @@ int main(void)
     ms_tick    = 0;
     blink_ms   = 0;
     blink_on   = 0;
-    anim_count = 0;
-    anim_ms    = 0;
 
     WriteLEDs(0, 0);
 
@@ -115,7 +101,6 @@ int main(void)
      * ================================================================= */
     while (1)
     {
-        /* Read and debounce all buttons every iteration */
         Debounce_Update(&btn_pb1, (uint8_t)PB1_GetValue());
         Debounce_Update(&btn_pb2, (uint8_t)PB2_GetValue());
         Debounce_Update(&btn_pb3, (uint8_t)PB3_GetValue());
@@ -123,9 +108,9 @@ int main(void)
 
         /* -----------------------------------------------------------------
          * STATE: IDLE
-         *   Short press PB1 → start the game in the selected mode.
-         *   Long  press PB1 → toggle between Classic and Endless mode.
-         *   Otherwise       → blink LED 0 at the rate for the current mode.
+         *   Short press PB1 → start the game.
+         *   Long  press PB1 → toggle Classic / Endless mode.
+         *   Otherwise       → blink LED 0 at the mode-specific rate.
          * --------------------------------------------------------------- */
         if (game_state == STATE_IDLE)
         {
@@ -156,15 +141,16 @@ int main(void)
 
         /* -----------------------------------------------------------------
          * STATE: PLAYING
-         *   PB2 / PB3 / PB4 → fire a red / green / blue shot.
-         *   Long press PB1   → abort and return to IDLE.
-         *   Game_Update()    → advance shots and invaders on their timers.
+         *   PB2/PB3/PB4  → fire red/green/blue shot; light matching LED.
+         *   Long press PB1 → abort and return to IDLE.
+         *   Game_Update()  → advance shots and invaders.
+         *   On transition to WIN      → Rainbow_Init().
+         *   On transition to GAME_OVER→ Gameover_Init().
          * --------------------------------------------------------------- */
         else if (game_state == STATE_PLAYING)
         {
             if (btn_pb1.long_press_event)
             {
-                /* Abort — clear the strip and go back to idle */
                 for (i = 0; i < NUM_LEDS; i++)
                     strip[i] = CELL_EMPTY;
                 game_state = STATE_IDLE;
@@ -177,108 +163,44 @@ int main(void)
             if (btn_pb3.pressed_event) Fire_Shot(CELL_SHOT_GREEN);
             if (btn_pb4.pressed_event) Fire_Shot(CELL_SHOT_BLUE);
 
-            /* Light the matching on-board LED while the button is held */
             if (btn_pb2.stable) LED3_SetHigh(); else LED3_SetLow();
             if (btn_pb3.stable) LED4_SetHigh(); else LED4_SetLow();
             if (btn_pb4.stable) LED5_SetHigh(); else LED5_SetLow();
 
             Game_Update();
 
-            if (game_state == STATE_GAME_OVER)
-            {
-                /* Start the game-over red-blink animation */
-                anim_count = GAMEOVER_FLASHES;
-                blink_on   = 1;
-                anim_ms    = ms_tick;
-                LED3_SetHigh(); LED4_SetHigh(); LED5_SetHigh();
-                WriteAllRed(1);
-            }
-
-            if (game_state == STATE_PLAYING)
-                WriteLEDs(1, 0);
+            if      (game_state == STATE_WIN)       Rainbow_Init();
+            else if (game_state == STATE_GAME_OVER)  Gameover_Init();
+            else                                     WriteLEDs(1, 0);
         }
 
         /* -----------------------------------------------------------------
-         * STATE: WIN — rainbow wave animation
-         *   Each tick: shift all strip cells one step toward the far end,
-         *   feed the next R/G/B colour into index 0.
-         *   WriteLEDs(1, 0) renders strip[] just like during gameplay.
+         * STATE: WIN — rainbow wave, auto-returns to IDLE when done.
          * --------------------------------------------------------------- */
         else if (game_state == STATE_WIN)
         {
-            if ((uint16_t)(ms_tick - anim_ms) >= RAINBOW_FRAME_MS)
+            Rainbow_Step();
+
+            if (game_state == STATE_IDLE)
             {
-                anim_ms = ms_tick;
-
-                /* Shift the rainbow wave toward the far end */
-                for (i = NUM_LEDS - 1u; i > 0u; i--)
-                    strip[i] = strip[i - 1u];
-
-                /* Feed the next colour into the player end */
-                rainbow_offset++;
-                if (rainbow_offset > 3u) rainbow_offset = 1u;
-                strip[0] = rainbow_offset;
-
-                WriteLEDs(1, 0);
-
-                anim_count--;
-                if (anim_count == 0u)
-                {
-                    for (i = 0; i < NUM_LEDS; i++)
-                        strip[i] = CELL_EMPTY;
-                    game_state = STATE_IDLE;
-                    blink_ms   = ms_tick;
-                    blink_on   = 0;
-                    WriteLEDs(0, 0);
-                }
-            }
-
-            /* PB1 skips the animation */
-            if (btn_pb1.pressed_event)
-            {
-                for (i = 0; i < NUM_LEDS; i++)
-                    strip[i] = CELL_EMPTY;
-                game_state = STATE_IDLE;
-                blink_ms   = ms_tick;
-                blink_on   = 0;
+                blink_ms = ms_tick;
+                blink_on = 0;
                 WriteLEDs(0, 0);
             }
         }
 
         /* -----------------------------------------------------------------
-         * STATE: GAME OVER — blink the whole strip red, then return to IDLE
-         *   PB1 skips the animation immediately.
+         * STATE: GAME OVER — red blink, auto-returns to IDLE when done.
          * --------------------------------------------------------------- */
         else if (game_state == STATE_GAME_OVER)
         {
-            if (btn_pb1.pressed_event)
+            Gameover_Step();
+
+            if (game_state == STATE_IDLE)
             {
-                LED3_SetLow(); LED4_SetLow(); LED5_SetLow();
-                WriteAllRed(0);
-                game_state = STATE_IDLE;
-                blink_ms   = ms_tick;
-                blink_on   = 0;
-            }
-            else if ((uint16_t)(ms_tick - anim_ms) >= GAMEOVER_BLINK_MS)
-            {
-                anim_ms  = ms_tick;
-                blink_on = !blink_on;
-                WriteAllRed(blink_on);
-
-                if (blink_on) { LED3_SetHigh(); LED4_SetHigh(); LED5_SetHigh(); }
-                else          { LED3_SetLow();  LED4_SetLow();  LED5_SetLow();  }
-
-                if (anim_count > 0u)
-                    anim_count--;
-
-                if (anim_count == 0u)
-                {
-                    LED3_SetLow(); LED4_SetLow(); LED5_SetLow();
-                    game_state = STATE_IDLE;
-                    blink_ms   = ms_tick;
-                    blink_on   = 0;
-                    WriteLEDs(0, 0);
-                }
+                blink_ms = ms_tick;
+                blink_on = 0;
+                WriteLEDs(0, 0);
             }
         }
     }

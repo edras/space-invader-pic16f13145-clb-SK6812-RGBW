@@ -75,8 +75,29 @@
 extern uint8_t strip[NUM_LEDS];
 
 /* -------------------------------------------------------------------------
+ * Rainbow animation constants
+ * ---------------------------------------------------------------------- */
+#define RAINBOW_FRAMES    90u   /* total frames in the win animation         */
+#define RAINBOW_FRAME_MS  33u   /* ms between frames (~30 fps)               */
+
+/* -------------------------------------------------------------------------
  * Functions
  * ---------------------------------------------------------------------- */
+
+/*
+ * Rainbow_Init — call once when entering STATE_WIN.
+ * Pre-fills strip[] with a repeating R/G/B pattern so the first frame
+ * already shows a full rainbow across all 300 LEDs, and resets counters.
+ */
+void Rainbow_Init(void);
+
+/*
+ * Rainbow_Step — call every main loop iteration while in STATE_WIN.
+ * Each RAINBOW_FRAME_MS tick: shifts the wave one step toward the far end,
+ * feeds the next colour into index 0, and calls WriteLEDs().
+ * Sets game_state = STATE_IDLE automatically when the animation finishes.
+ */
+void Rainbow_Step(void);
 
 /*
  * WriteLEDs — send the current strip[] state to the physical LED strip.

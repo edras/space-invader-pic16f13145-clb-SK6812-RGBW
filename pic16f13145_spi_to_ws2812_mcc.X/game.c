@@ -24,7 +24,6 @@ game_state_t game_state;
 game_mode_t  game_mode;
 uint8_t      anim_count;
 uint16_t     anim_ms;
-uint8_t      rainbow_offset;
 
 /* Private game variables */
 static uint16_t invader_head;    /* index of the first (closest) invader     */
@@ -98,17 +97,33 @@ void Fire_Shot(uint8_t shot_cell)
 }
 
 /* -------------------------------------------------------------------------
- * All_Invaders_Gone — scan from index 0 up to invader_head for any
- * surviving invader.  Only the region behind invader_head can hold them;
- * scanning beyond is unnecessary.
+ * All_Invaders_Gone — scan the full strip for any surviving invader.
+ * Must scan all 300 cells because Shot_Miss() can append new invaders
+ * beyond invader_head.
  * ---------------------------------------------------------------------- */
 static uint8_t All_Invaders_Gone(void)
 {
     uint16_t i;
-    for (i = 0; i <= invader_head; i++)
+    for (i = 0; i < NUM_LEDS; i++)
         if (CELL_IS_INV(strip[i]))
             return 0;
     return 1;
+}
+
+/* -------------------------------------------------------------------------
+ * Shot_Miss — penalty for a missed shot (overshot or wrong colour).
+ * Adds a new invader at the tail if there is a free cell there, and
+ * speeds up the invader tick by one step (both modes).
+ * ---------------------------------------------------------------------- */
+static void Shot_Miss(void)
+{
+    if (strip[NUM_LEDS - 1u] == CELL_EMPTY)
+        strip[NUM_LEDS - 1u] = Rng_NextColor();
+
+    if (game_tick_ms > GAME_TICK_MIN_MS + SPEED_UP_STEP_MS)
+        game_tick_ms -= SPEED_UP_STEP_MS;
+    else
+        game_tick_ms = GAME_TICK_MIN_MS;
 }
 
 /* -------------------------------------------------------------------------
@@ -117,17 +132,23 @@ static uint8_t All_Invaders_Gone(void)
  * Walk the strip from high index to low so each shot moves at most one
  * position per call (prevents a shot from skipping over multiple cells).
  *
- * Collision with an invader:
- *   Colour match, Classic mode : compact the group (shifts strip down,
- *                                clears the last slot) so the group shrinks.
- *   Colour match, Endless mode : clear the invader in place — the gap is
- *                                refilled by Invaders_Advance on the next tick.
- *   Colour mismatch            : shot is absorbed; invader survives.
+ * Outcomes:
+ *   Shot reaches NUM_LEDS-1 (overshot)  : miss penalty, shot consumed.
+ *   Colour match, Classic mode          : invader destroyed, group compacted.
+ *   Colour match, Endless mode          : invader cleared in place.
+ *   Colour mismatch                     : miss penalty, shot consumed.
  * ---------------------------------------------------------------------- */
 static void Shots_Run(void)
 {
     uint16_t i;
     uint8_t  cell, next;
+
+    /* Clear any shot that reached the last cell (overshot all invaders) */
+    if (CELL_IS_SHOT(strip[NUM_LEDS - 1u]))
+    {
+        strip[NUM_LEDS - 1u] = CELL_EMPTY;
+        Shot_Miss();
+    }
 
     for (i = NUM_LEDS - 2u; ; i--)
     {
@@ -149,7 +170,6 @@ static void Shots_Run(void)
                     /* Colour match — destroy the invader */
                     if (game_mode == MODE_CLASSIC)
                     {
-                        /* Compact: shift everything above the hit down by one */
                         uint16_t j;
                         for (j = i + 1u; j < NUM_LEDS - 1u; j++)
                             strip[j] = strip[j + 1u];
@@ -161,7 +181,12 @@ static void Shots_Run(void)
                         strip[i + 1u] = CELL_EMPTY;
                     }
                 }
-                strip[i] = CELL_EMPTY;  /* shot is consumed either way */
+                else
+                {
+                    /* Wrong colour — miss penalty */
+                    Shot_Miss();
+                }
+                strip[i] = CELL_EMPTY;  /* shot consumed either way */
             }
             /* else: next cell is another shot — leave both in place */
         }
@@ -188,13 +213,7 @@ static void Invaders_Advance(void)
     uint16_t i;
     uint8_t  inv, dst;
 
-    if (invader_head == 0u)
-    {
-        game_state = STATE_GAME_OVER;
-        return;
-    }
-
-    for (i = invader_head; i < NUM_LEDS; i++)
+    for (i = (invader_head > 0u ? invader_head : 1u); i < NUM_LEDS; i++)
     {
         inv = strip[i];
         if (!CELL_IS_INV(inv))
@@ -222,10 +241,47 @@ static void Invaders_Advance(void)
     strip[NUM_LEDS - 1u] = (game_mode == MODE_ENDLESS)
                            ? Rng_NextColor()
                            : CELL_EMPTY;
-    invader_head--;
 
-    if (invader_head == 0u)
+    if (invader_head > 0u)
+        invader_head--;
+
+    if (CELL_IS_INV(strip[0]))
         game_state = STATE_GAME_OVER;
+}
+
+/* -------------------------------------------------------------------------
+ * Gameover_Init — set up the red-blink animation counters and show the
+ * first red frame immediately.
+ * ---------------------------------------------------------------------- */
+void Gameover_Init(void)
+{
+    anim_count = GAMEOVER_FLASHES;
+    anim_ms    = Ms_Now();
+    LED3_SetHigh(); LED4_SetHigh(); LED5_SetHigh();
+    WriteAllRed(1);
+}
+
+/* -------------------------------------------------------------------------
+ * Gameover_Step — blink the strip red GAMEOVER_FLASHES times, then
+ * transition to STATE_IDLE.
+ * ---------------------------------------------------------------------- */
+void Gameover_Step(void)
+{
+    if ((uint16_t)(ms_tick - anim_ms) < GAMEOVER_BLINK_MS)
+        return;
+
+    anim_ms  = Ms_Now();
+    anim_count--;
+    WriteAllRed(anim_count & 1u);   /* odd counts = on, even = off */
+
+    if (anim_count & 1u) { LED3_SetHigh(); LED4_SetHigh(); LED5_SetHigh(); }
+    else                 { LED3_SetLow();  LED4_SetLow();  LED5_SetLow();  }
+
+    if (anim_count == 0u)
+    {
+        LED3_SetLow(); LED4_SetLow(); LED5_SetLow();
+        game_state = STATE_IDLE;
+    }
 }
 
 /* -------------------------------------------------------------------------
@@ -248,16 +304,7 @@ void Game_Update(void)
         /* Win check: only in Classic mode, checked after shots resolve */
         if (game_mode == MODE_CLASSIC && All_Invaders_Gone())
         {
-            uint16_t wi;
-            /* Pre-fill strip with R/G/B/R/G/B… so the win animation
-             * shows a full rainbow from the first frame */
-            for (wi = 0u; wi < NUM_LEDS; wi++)
-                strip[wi] = (uint8_t)((wi % 3u) + 1u);
-
-            game_state     = STATE_WIN;
-            anim_count     = RAINBOW_FRAMES;
-            rainbow_offset = 1u;
-            anim_ms        = Ms_Now();
+            game_state = STATE_WIN;   /* Rainbow_Init() called by main.c */
             return;
         }
     }

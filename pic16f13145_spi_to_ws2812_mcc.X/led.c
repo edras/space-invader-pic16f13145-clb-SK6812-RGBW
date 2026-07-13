@@ -17,6 +17,7 @@
  */
 
 #include "led.h"
+#include "game.h"
 #include "mcc_generated_files/system/system.h"
 
 /* -------------------------------------------------------------------------
@@ -118,4 +119,53 @@ void WriteAllRed(uint8_t on)
     __delay_us(100);
     ms_tick += RENDER_MS;
     INTERRUPT_GlobalInterruptEnable();
+}
+
+/* -------------------------------------------------------------------------
+ * Rainbow animation — private state
+ * ---------------------------------------------------------------------- */
+static uint8_t rainbow_offset;   /* next colour to feed into index 0 */
+
+/* -------------------------------------------------------------------------
+ * Rainbow_Init — pre-fill strip[] with R/G/B/R/G/B… and reset counters.
+ * ---------------------------------------------------------------------- */
+void Rainbow_Init(void)
+{
+    uint16_t i;
+    for (i = 0u; i < NUM_LEDS; i++)
+        strip[i] = (uint8_t)((i % 3u) + 1u);   /* 1=R, 2=G, 3=B repeating */
+    anim_count     = RAINBOW_FRAMES;
+    rainbow_offset = 1u;
+    anim_ms        = ms_tick;
+}
+
+/* -------------------------------------------------------------------------
+ * Rainbow_Step — shift wave, feed new colour, render, count down.
+ * Sets game_state = STATE_IDLE when the animation finishes.
+ * ---------------------------------------------------------------------- */
+void Rainbow_Step(void)
+{
+    uint16_t i;
+
+    if ((uint16_t)(ms_tick - anim_ms) < RAINBOW_FRAME_MS)
+        return;
+
+    anim_ms = ms_tick;
+
+    for (i = NUM_LEDS - 1u; i > 0u; i--)
+        strip[i] = strip[i - 1u];
+
+    rainbow_offset++;
+    if (rainbow_offset > 3u) rainbow_offset = 1u;
+    strip[0] = rainbow_offset;
+
+    WriteLEDs(1, 0);
+
+    anim_count--;
+    if (anim_count == 0u)
+    {
+        for (i = 0u; i < NUM_LEDS; i++)
+            strip[i] = CELL_EMPTY;
+        game_state = STATE_IDLE;
+    }
 }

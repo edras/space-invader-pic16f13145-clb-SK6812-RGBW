@@ -13,8 +13,8 @@
  *   STATE_PLAYING ──(invader reaches index 0)──────► STATE_GAME_OVER
  *   STATE_PLAYING ──(long press PB1)───────────────► STATE_IDLE
  *
- *   STATE_WIN      ──(animation done / PB1)──► STATE_IDLE
- *   STATE_GAME_OVER──(animation done / PB1)──► STATE_IDLE
+ *   STATE_WIN      ──(animation done)──► STATE_IDLE
+ *   STATE_GAME_OVER──(animation done)──► STATE_IDLE
  */
 
 #ifndef GAME_H
@@ -47,10 +47,6 @@ typedef enum {
 #define SPEED_UP_STEP_MS    30u     /* ms removed from tick period each step  */
 #define SHOT_STEP_MS        25u     /* ms between shot advances               */
 
-/* Win animation */
-#define RAINBOW_FRAMES      90u     /* number of frames in the win animation  */
-#define RAINBOW_FRAME_MS    33u     /* ms between animation frames (~30 fps)  */
-
 /* Game-over animation */
 #define GAMEOVER_FLASHES    6u      /* 3 on + 3 off = 3 full red blinks       */
 #define GAMEOVER_BLINK_MS   200u    /* ms per half-blink                      */
@@ -63,7 +59,6 @@ extern game_state_t game_state;
 extern game_mode_t  game_mode;
 extern uint8_t      anim_count;    /* animation frames remaining             */
 extern uint16_t     anim_ms;       /* timestamp of last animation tick       */
-extern uint8_t      rainbow_offset;/* colour counter for the win animation   */
 
 /* -------------------------------------------------------------------------
  * Functions
@@ -87,5 +82,18 @@ void Fire_Shot(uint8_t shot_cell);
  * Call this every iteration of the main loop while in STATE_PLAYING.
  */
 void Game_Update(void);
+
+/*
+ * Gameover_Init — called once when the game transitions to STATE_GAME_OVER.
+ * Sets up the animation counters and sends the first red frame.
+ */
+void Gameover_Init(void);
+
+/*
+ * Gameover_Step — called every iteration of the main loop while in
+ * STATE_GAME_OVER.  Blinks the strip red GAMEOVER_FLASHES times, then
+ * transitions to STATE_IDLE automatically.
+ */
+void Gameover_Step(void);
 
 #endif /* GAME_H */
