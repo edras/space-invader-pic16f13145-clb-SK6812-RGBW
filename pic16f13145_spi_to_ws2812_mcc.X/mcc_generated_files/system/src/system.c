@@ -42,6 +42,7 @@ void SYSTEM_Initialize(void)
     CLB1_Initialize();
     PIN_MANAGER_Initialize();
     SPI1_Initialize();
+    TMR0_Initialize();
     CRC_Initialize();
     INTERRUPT_Initialize();
 }
