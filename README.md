@@ -53,10 +53,10 @@ Space Invaders 1D maps the classic arcade game onto a single row of 300 LEDs. Th
 
 <br><img src="images/wiring_manual.png" width="1000">
 
+<br>Watch the video on youtube: [youtube](https://youtu.be/-0pXlrY7NrI)
 <br><img src="images/demo2.jpg" width="1000">
-<br><video width="640" height="320" controls>
-  <source src="images/demo.mp4" type="video/mp4">
-</video>
+
+
 
 **Note:** LED brightness is capped at ~35% of maximum to stay within USB power limits.
 
