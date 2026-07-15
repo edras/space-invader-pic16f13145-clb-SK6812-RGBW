@@ -32,8 +32,10 @@ A fully playable 1D Space Invaders game running on a 300-LED SK6812 RGBW strip, 
 - [PIC16F13145 VeryVerilog Development Board](https://github.com/MicrochipTech/veryVerilog) — primary target platform
   <br><img src="images/veryverilog.png" width="600">
 
-- SK6812 RGBW LED Strip (300 LEDs):
+- SK6812 RGBW LED Strip (300 LEDs) — default configuration:
   <br><img src="images/SK6812_RGBW.png" width="600">
+
+- **Alternatively:** any WS2812-compatible RGB strip (e.g. WS2812B, NeoPixel) — select `LED_TYPE_RGB` in `led.h` (see [Configuration](#configuration)).
 
 > The project also runs on the [PIC16F13145 Curiosity Nano](https://www.microchip.com/en-us/development-tool/EV06M52A) with minor pin-mapping changes.
 
@@ -176,6 +178,38 @@ The following peripheral and clock configurations are set in MCC Melody for the 
 
 ---
 
+## Configuration
+
+All user-configurable parameters are defined at the top of `pic16f13145_spi_to_ws2812_mcc.X/led.h`.
+
+### LED Strip Type
+
+Two LED strip types are supported. Exactly one of the following macros must be defined (comment out the other):
+
+```c
+#define LED_TYPE_RGBW   /* SK6812 RGBW — 4 bytes per LED: G R B W  (default) */
+/* #define LED_TYPE_RGB */  /* WS2812 / NeoPixel RGB — 3 bytes per LED: G R B  */
+```
+
+| Define | Strip type | Bytes per LED |
+|--------|-----------|---------------|
+| `LED_TYPE_RGBW` (default) | SK6812 RGBW | 4 (G, R, B, W) |
+| `LED_TYPE_RGB` | WS2812 / NeoPixel RGB | 3 (G, R, B) |
+
+### Number of LEDs
+
+```c
+#define NUM_LEDS  300u
+```
+
+Change this value to match the actual length of your strip. The game board maps one-to-one onto the LED count, so shorter strips will result in a shorter playing field.
+
+### LED Brightness
+
+> **Note:** LED brightness is capped at ~35% of maximum to stay within USB power limits. To change this, adjust the `BRIGHT()` macro in `led.h`.
+
+---
+
 ## Summary
 
 This project demonstrates the PIC16F13145 CLB peripheral converting SPI data into WS2812-compatible timing entirely in hardware, freeing the CPU to run a complete 1D Space Invaders game with four game modes, multi-hit invaders, difficulty scaling, and win/lose animations — all on a 300-LED strip.
@@ -211,5 +245,6 @@ This project demonstrates the PIC16F13145 CLB peripheral converting SPI data int
 - [Back to The Game](#the-game)
 - [Back to Concept](#concept)
 - [Back to Setup](#setup)
+- [Back to Configuration](#configuration)
 - [Back to Summary](#summary)
 - [Back to How to Program the veryVerilog Board](#how-to-program-the-veryverilog-board)

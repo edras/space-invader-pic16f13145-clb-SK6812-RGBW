@@ -44,6 +44,14 @@
 #include <stdint.h>
 
 /* -------------------------------------------------------------------------
+ * LED strip type selection
+ *   LED_TYPE_RGBW — SK6812 RGBW (default, 4 bytes per LED: G R B W)
+ *   LED_TYPE_RGB  — WS2812 / NeoPixel RGB (3 bytes per LED: G R B)
+ * ---------------------------------------------------------------------- */
+#define LED_TYPE_RGBW
+/* #define LED_TYPE_RGB */
+
+/* -------------------------------------------------------------------------
  * Strip size
  * ---------------------------------------------------------------------- */
 #define NUM_LEDS  300u

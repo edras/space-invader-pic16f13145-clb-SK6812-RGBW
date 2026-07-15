@@ -1,9 +1,13 @@
 /*
  * led.c — LED strip driver for Space Invaders 1D
  *
- * The SK6812 strip is driven through the on-chip CLB, which converts the
+ * The LED strip is driven through the on-chip CLB, which converts the
  * MSSP1 SPI bitstream into WS2812-compatible pulse widths at 800 kHz.
- * Byte order per LED: G, R, B, W  (W is always 0 — we use RGB only).
+ *
+ * LED_TYPE_RGBW (default, SK6812): byte order per LED: G, R, B, W
+ * LED_TYPE_RGB  (WS2812/NeoPixel): byte order per LED: G, R, B
+ *
+ * Both types are selected via the LED_TYPE_RGBW / LED_TYPE_RGB define in led.h.
  *
  * KEY TIMING RULE:
  *   SPI1_ByteExchange() polls until the byte finishes transmitting, then
@@ -98,11 +102,13 @@ void WriteLEDs(uint8_t show_cells, uint8_t idle_blink_on, uint8_t idle_red)
             { g = COL_IDLE; r = COL_IDLE; b = COL_IDLE; }
         }
 
-        /* SK6812 byte order: G R B W */
+        /* Byte order: G R B [W]  — W only sent for RGBW strips */
         SPI_SendByte(g);
         SPI_SendByte(r);
         SPI_SendByte(b);
-        SPI_SendByte(0);   /* W channel unused */
+#ifdef LED_TYPE_RGBW
+        SPI_SendByte(0);   /* W channel — always 0, colour via RGB channels */
+#endif
     }
 
     SPI1_Close();
@@ -130,7 +136,9 @@ void WriteAllRed(uint8_t on)
         SPI_SendByte(g);
         SPI_SendByte(r);
         SPI_SendByte(b);
-        SPI_SendByte(0);
+#ifdef LED_TYPE_RGBW
+        SPI_SendByte(0);   /* W channel — always 0 */
+#endif
     }
 
     SPI1_Close();
